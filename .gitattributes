@@ -1,0 +1,21 @@
+/mvnw text eol=lf
+*.cmd text eol=crlf
+
+# Auto normalize other text files
+* text=auto
+
+# Java and resources
+*.java text
+*.xml text
+*.properties text
+*.yaml text
+*.yml text
+
+# Binary
+*.jar binary
+*.war binary
+*.class binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
