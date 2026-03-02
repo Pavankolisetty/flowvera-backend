@@ -23,6 +23,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+
     @Override
     public Employee createEmployee(CreateUserRequest request) {
         String nextEmpId = generateNextEmpId();
