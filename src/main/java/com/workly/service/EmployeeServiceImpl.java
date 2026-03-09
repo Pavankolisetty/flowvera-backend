@@ -30,9 +30,14 @@ public class EmployeeServiceImpl implements EmployeeService {
         validateEmailDomain(request.getEmail());
         
         // Check if email already exists
-        if (employeeRepo.findByEmail(request.getEmail()).isPresent()) {
-            Employee existingEmployee = employeeRepo.findByEmail(request.getEmail()).get();
+        if (employeeRepo.existsByEmailIgnoreCase(request.getEmail())) {
+            Employee existingEmployee = employeeRepo
+                .findFirstByEmailIgnoreCaseOrderByCreatedAtDesc(request.getEmail())
+                .orElse(null);
+            if (existingEmployee != null) {
             throw new IllegalArgumentException("Email already exists. User '" + existingEmployee.getName() + "' (ID: " + existingEmployee.getEmpId() + ") is already registered with this email.");
+            }
+            throw new IllegalArgumentException("Email already exists.");
         }
         
         // Check if phone number already exists
@@ -81,7 +86,7 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public Employee findByEmail(String email) {
-        return employeeRepo.findByEmail(email).orElse(null);
+        return employeeRepo.findFirstByEmailIgnoreCaseOrderByCreatedAtDesc(email).orElse(null);
     }
 
     @Override
