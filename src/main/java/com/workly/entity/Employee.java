@@ -23,9 +23,10 @@ public class Employee {
     @Enumerated(EnumType.STRING)
     private Role role;
 
+    @Column(unique = true, nullable = false)
     private String phone;
 
-    private String specialization; // e.g., "Frontend Developer", "Research Engineer", "Software Developer"
+    private String designation; // e.g., "Frontend Developer", "Research Engineer", "Software Developer"
 
     private LocalDateTime createdAt = LocalDateTime.now();
 }

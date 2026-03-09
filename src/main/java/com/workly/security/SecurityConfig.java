@@ -42,10 +42,9 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(Arrays.asList(
+        config.setAllowedOriginPatterns(Arrays.asList(
             "http://localhost:3000",
-            "https://flowvera-frontend-hbsizojxo-pavankolisettys-projects.vercel.app",
-            "https://flowvera-frontend.vercel.app"
+            "https://*.vercel.app"
         ));
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type"));

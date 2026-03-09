@@ -12,6 +12,7 @@ import com.workly.dto.AssignTaskRequest;
 import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
 import com.workly.dto.CreateUserRequest;
+import com.workly.dto.ErrorResponse;
 import com.workly.dto.ReassignTaskRequest;
 // attendance DTOs removed
 import com.workly.entity.Employee;
@@ -29,7 +30,6 @@ import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/admin")
-@CrossOrigin(origins = "http://localhost:3000")
 @RequiredArgsConstructor
 public class AdminController {
 
@@ -48,9 +48,15 @@ public class AdminController {
     private TaskRepository taskRepo;
 
     @PostMapping("/create-user")
-    public ResponseEntity<Employee> createUser(@RequestBody CreateUserRequest request) {
-        Employee employee = employeeService.createEmployee(request);
-        return ResponseEntity.ok(employee);
+    public ResponseEntity<?> createUser(@RequestBody CreateUserRequest request) {
+        try {
+            Employee employee = employeeService.createEmployee(request);
+            return ResponseEntity.ok(employee);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(new ErrorResponse("Failed to create user: " + e.getMessage()));
+        }
     }
 
     @PostMapping("/create-task")

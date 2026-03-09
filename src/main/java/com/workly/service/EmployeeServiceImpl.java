@@ -26,6 +26,21 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public Employee createEmployee(CreateUserRequest request) {
+        // Validate email domain
+        validateEmailDomain(request.getEmail());
+        
+        // Check if email already exists
+        if (employeeRepo.findByEmail(request.getEmail()).isPresent()) {
+            Employee existingEmployee = employeeRepo.findByEmail(request.getEmail()).get();
+            throw new IllegalArgumentException("Email already exists. User '" + existingEmployee.getName() + "' (ID: " + existingEmployee.getEmpId() + ") is already registered with this email.");
+        }
+        
+        // Check if phone number already exists
+        if (employeeRepo.findByPhone(request.getPhone()).isPresent()) {
+            Employee existingEmployee = employeeRepo.findByPhone(request.getPhone()).get();
+            throw new IllegalArgumentException("Phone number already exists. User '" + existingEmployee.getName() + "' (ID: " + existingEmployee.getEmpId() + ") is already registered with this phone number.");
+        }
+        
         String nextEmpId = generateNextEmpId();
         
         Employee employee = new Employee();
@@ -34,11 +49,29 @@ public class EmployeeServiceImpl implements EmployeeService {
         employee.setEmail(request.getEmail());
         employee.setPassword(passwordEncoder.encode(request.getPassword()));
         employee.setPhone(request.getPhone());
-        employee.setSpecialization(request.getSpecialization());
+        employee.setDesignation(request.getDesignation());
         // Always set role to USER - only admin can create new users and they shouldn't create other admins
         employee.setRole(Role.USER);
         
         return employeeRepo.save(employee);
+    }
+    
+    private void validateEmailDomain(String email) {
+        String[] allowedDomains = {"gmail.com", "outlook.com", "yahoo.com", "zoho.com"};
+        
+        if (email == null || !email.contains("@")) {
+            throw new IllegalArgumentException("Invalid email format.");
+        }
+        
+        String domain = email.substring(email.indexOf("@") + 1).toLowerCase();
+        
+        for (String allowedDomain : allowedDomains) {
+            if (domain.equals(allowedDomain)) {
+                return;
+            }
+        }
+        
+        throw new IllegalArgumentException("Email domain not allowed. Please use Gmail, Outlook, Yahoo, or Zoho.");
     }
 
     @Override

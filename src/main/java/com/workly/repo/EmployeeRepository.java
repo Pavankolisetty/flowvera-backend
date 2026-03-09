@@ -8,6 +8,7 @@ import java.util.Optional;
 public interface EmployeeRepository extends JpaRepository<Employee, String> {
     Optional<Employee> findByEmail(String email);
     Optional<Employee> findByEmpId(String empId);
+    Optional<Employee> findByPhone(String phone);
     
     @Query("SELECT MAX(e.empId) FROM Employee e")
     String findMaxEmpId();
