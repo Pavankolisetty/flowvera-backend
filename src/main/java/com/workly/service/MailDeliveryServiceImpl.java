@@ -6,6 +6,7 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.MailException;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -38,7 +39,7 @@ public class MailDeliveryServiceImpl implements MailDeliveryService {
     private final String sendGridApiUrl;
 
     public MailDeliveryServiceImpl(
-            JavaMailSender mailSender,
+            ObjectProvider<JavaMailSender> mailSenderProvider,
             ObjectMapper objectMapper,
             @Value("${app.mail.provider:smtp}") String provider,
             @Value("${app.mail.from-name:Workly}") String fromName,
@@ -47,7 +48,7 @@ public class MailDeliveryServiceImpl implements MailDeliveryService {
             @Value("${sendgrid.api-key:}") String sendGridApiKey,
             @Value("${sendgrid.api-url:https://api.sendgrid.com/v3/mail/send}") String sendGridApiUrl,
             @Value("${app.mail.http-timeout-seconds:15}") long timeoutSeconds) {
-        this.mailSender = mailSender;
+        this.mailSender = mailSenderProvider.getIfAvailable();
         this.objectMapper = objectMapper;
         this.provider = provider == null ? "smtp" : provider.trim().toLowerCase();
         this.fromName = fromName;
@@ -70,6 +71,9 @@ public class MailDeliveryServiceImpl implements MailDeliveryService {
     }
 
     private void sendViaSmtp(String to, String subject, String html) {
+        if (mailSender == null) {
+            throw new IllegalStateException("SMTP mail sender is not available. Check spring-boot-starter-mail and SMTP configuration.");
+        }
         if (smtpHost == null || smtpHost.isBlank()) {
             throw new IllegalStateException("Mail is not configured. Set MAIL_HOST, MAIL_USERNAME, and MAIL_PASSWORD.");
         }
