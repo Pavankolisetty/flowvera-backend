@@ -1,13 +1,9 @@
 package com.workly.service;
 
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.MailException;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,8 +13,6 @@ import com.workly.entity.EmailVerification;
 import com.workly.exception.RateLimitException;
 import com.workly.repo.EmailVerificationRepository;
 import com.workly.repo.EmployeeRepository;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +25,7 @@ public class EmailVerificationService {
     private static final int TOKEN_LENGTH = 32;
     private static final String[] ALLOWED_DOMAINS = {"gmail.com", "outlook.com", "yahoo.com", "zoho.com"};
 
-    private final JavaMailSender mailSender;
+    private final MailDeliveryService mailDeliveryService;
     private final EmailPolicyService emailPolicyService;
     private final EmployeeRepository employeeRepo;
     private final EmailVerificationRepository emailVerificationRepository;
@@ -40,33 +34,24 @@ public class EmailVerificationService {
 
     private final long cooldownSeconds;
     private final long expiryMinutes;
-    private final String mailFromName;
-    private final String mailFromAddress;
-    private final String mailHost;
     private final String brandLogoUrl;
 
     public EmailVerificationService(
-            JavaMailSender mailSender,
+            MailDeliveryService mailDeliveryService,
             EmailPolicyService emailPolicyService,
             EmployeeRepository employeeRepo,
             EmailVerificationRepository emailVerificationRepository,
             PasswordEncoder passwordEncoder,
             @Value("${app.email.verification.cooldown-seconds:60}") long cooldownSeconds,
             @Value("${app.email.verification.expiry-minutes:15}") long expiryMinutes,
-            @Value("${app.mail.from-name:Workly}") String mailFromName,
-            @Value("${spring.mail.username:}") String mailFromAddress,
-            @Value("${spring.mail.host:}") String mailHost,
             @Value("${app.brand.logo-url:}") String brandLogoUrl) {
-        this.mailSender = mailSender;
+        this.mailDeliveryService = mailDeliveryService;
         this.emailPolicyService = emailPolicyService;
         this.employeeRepo = employeeRepo;
         this.emailVerificationRepository = emailVerificationRepository;
         this.passwordEncoder = passwordEncoder;
         this.cooldownSeconds = cooldownSeconds;
         this.expiryMinutes = expiryMinutes;
-        this.mailFromName = mailFromName;
-        this.mailFromAddress = mailFromAddress;
-        this.mailHost = mailHost;
         this.brandLogoUrl = brandLogoUrl;
     }
 
@@ -140,25 +125,7 @@ public class EmailVerificationService {
     }
 
     private void sendAccountEmail(String email, String name, String tempPassword) {
-        if (mailHost == null || mailHost.isBlank()) {
-            throw new IllegalStateException("Mail is not configured. Set MAIL_HOST, MAIL_USERNAME, and MAIL_PASSWORD.");
-        }
-        if (mailFromAddress == null || mailFromAddress.isBlank()) {
-            throw new IllegalStateException("Mail sender is not configured. Set MAIL_USERNAME.");
-        }
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
-            helper.setTo(email);
-            helper.setSubject("Your Flowvera account is ready");
-            if (mailFromAddress != null && !mailFromAddress.isBlank()) {
-                try {
-                    helper.setFrom(mailFromAddress, mailFromName);
-                } catch (java.io.UnsupportedEncodingException ex) {
-                    helper.setFrom(mailFromAddress);
-                }
-            }
-
             String greetingName = name.isBlank() ? "there" : name;
             String logoBlock = "";
             if (brandLogoUrl != null && !brandLogoUrl.isBlank()) {
@@ -169,7 +136,7 @@ public class EmailVerificationService {
                         """.formatted(brandLogoUrl);
             }
 
-        String html = """
+            String html = """
                     <div style="font-family:Arial,Helvetica,sans-serif; color:#111827; line-height:1.6; background:#f3f4f6; padding:24px;">
                       <div style="max-width:560px; margin:0 auto; background:#ffffff; border-radius:16px; padding:28px; border:1px solid #e5e7eb;">
                         %s
@@ -197,9 +164,8 @@ public class EmailVerificationService {
                     </div>
                     """.formatted(logoBlock, greetingName, email, tempPassword);
 
-            helper.setText(html, true);
-            mailSender.send(message);
-        } catch (MessagingException | MailException ex) {
+            mailDeliveryService.sendHtmlEmail(email, "Your Flowvera account is ready", html);
+        } catch (Exception ex) {
             log.error("Failed to send verification email to {}", email, ex);
             throw new IllegalStateException("Failed to send verification email. Please try again.", ex);
         }

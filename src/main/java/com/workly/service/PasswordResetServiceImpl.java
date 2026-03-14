@@ -9,17 +9,13 @@ import com.workly.entity.Employee;
 import com.workly.entity.PasswordReset;
 import com.workly.repo.EmployeeRepository;
 import com.workly.repo.PasswordResetRepository;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.MailException;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -28,42 +24,34 @@ import java.util.UUID;
 @Service
 public class PasswordResetServiceImpl implements PasswordResetService {
 
+    private static final Logger log = LoggerFactory.getLogger(PasswordResetServiceImpl.class);
     private static final String GENERIC_REQUEST_MESSAGE =
             "If the email is registered, a one-time password has been sent. Please check your inbox.";
 
     private final EmployeeRepository employeeRepository;
     private final PasswordResetRepository passwordResetRepository;
-    private final JavaMailSender mailSender;
+    private final MailDeliveryService mailDeliveryService;
     private final PasswordEncoder passwordEncoder;
     private final SecureRandom secureRandom = new SecureRandom();
     private final long otpExpiryMinutes;
     private final long resetTokenExpiryMinutes;
     private final long requestCooldownSeconds;
-    private final String mailFromName;
-    private final String mailFromAddress;
-    private final String mailHost;
 
     public PasswordResetServiceImpl(
             EmployeeRepository employeeRepository,
             PasswordResetRepository passwordResetRepository,
-            JavaMailSender mailSender,
+            MailDeliveryService mailDeliveryService,
             PasswordEncoder passwordEncoder,
             @Value("${app.password-reset.otp-expiry-minutes:10}") long otpExpiryMinutes,
             @Value("${app.password-reset.reset-token-expiry-minutes:10}") long resetTokenExpiryMinutes,
-            @Value("${app.password-reset.cooldown-seconds:60}") long requestCooldownSeconds,
-            @Value("${app.mail.from-name:Workly}") String mailFromName,
-            @Value("${spring.mail.username:}") String mailFromAddress,
-            @Value("${spring.mail.host:}") String mailHost) {
+            @Value("${app.password-reset.cooldown-seconds:60}") long requestCooldownSeconds) {
         this.employeeRepository = employeeRepository;
         this.passwordResetRepository = passwordResetRepository;
-        this.mailSender = mailSender;
+        this.mailDeliveryService = mailDeliveryService;
         this.passwordEncoder = passwordEncoder;
         this.otpExpiryMinutes = otpExpiryMinutes;
         this.resetTokenExpiryMinutes = resetTokenExpiryMinutes;
         this.requestCooldownSeconds = requestCooldownSeconds;
-        this.mailFromName = mailFromName;
-        this.mailFromAddress = mailFromAddress;
-        this.mailHost = mailHost;
     }
 
     @Override
@@ -174,24 +162,7 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     }
 
     private void sendOtpEmail(Employee employee, String otp) {
-        if (mailHost == null || mailHost.isBlank()) {
-            throw new IllegalStateException("Mail is not configured. Set SMTP settings before using forgot password.");
-        }
-        if (mailFromAddress == null || mailFromAddress.isBlank()) {
-            throw new IllegalStateException("Mail sender is not configured. Set MAIL_USERNAME.");
-        }
-
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, StandardCharsets.UTF_8.name());
-            helper.setTo(employee.getEmail());
-            helper.setSubject("Flowvera password reset OTP");
-            try {
-                helper.setFrom(mailFromAddress, mailFromName);
-            } catch (java.io.UnsupportedEncodingException ex) {
-                helper.setFrom(mailFromAddress);
-            }
-
             String name = employee.getName() != null && !employee.getName().isBlank() ? employee.getName().trim() : "there";
             String html = """
                     <div style="font-family:Arial,Helvetica,sans-serif; color:#111827; line-height:1.6; background:#f3f4f6; padding:24px;">
@@ -212,9 +183,9 @@ public class PasswordResetServiceImpl implements PasswordResetService {
                     </div>
                     """.formatted(name, otp, otpExpiryMinutes);
 
-            helper.setText(html, true);
-            mailSender.send(message);
-        } catch (MessagingException | MailException ex) {
+            mailDeliveryService.sendHtmlEmail(employee.getEmail(), "Flowvera password reset OTP", html);
+        } catch (Exception ex) {
+            log.error("Failed to send password reset OTP to {}", employee.getEmail(), ex);
             throw new IllegalStateException("Failed to send password reset OTP. Please try again.", ex);
         }
     }
