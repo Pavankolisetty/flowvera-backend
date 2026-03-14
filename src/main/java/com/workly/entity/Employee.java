@@ -1,6 +1,7 @@
 package com.workly.entity;
 
 import jakarta.persistence.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.*;
 import java.time.LocalDateTime;
 
@@ -18,6 +19,10 @@ public class Employee {
     @Column(unique = true, nullable = false)
     private String email;
 
+    @Column(nullable = false)
+    private Boolean emailVerified = false;
+
+    @JsonIgnore
     private String password;
 
     @Enumerated(EnumType.STRING)
@@ -26,7 +31,26 @@ public class Employee {
     @Column(unique = true, nullable = false)
     private String phone;
 
+    private String phoneCountryCode;
+
     private String designation; // e.g., "Frontend Developer", "Research Engineer", "Software Developer"
 
+    @Column(nullable = false)
+    private Boolean passwordResetRequired = true;
+
     private LocalDateTime createdAt = LocalDateTime.now();
+
+    @PrePersist
+    @PreUpdate
+    public void applyDefaults() {
+        if (emailVerified == null) {
+            emailVerified = false;
+        }
+        if (passwordResetRequired == null) {
+            passwordResetRequired = true;
+        }
+        if (createdAt == null) {
+            createdAt = LocalDateTime.now();
+        }
+    }
 }

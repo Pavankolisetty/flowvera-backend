@@ -3,9 +3,17 @@ package com.workly.controller;
 import com.workly.dto.LoginEmailRequest;
 import com.workly.dto.LoginRequest;
 import com.workly.dto.LoginResponse;
+import com.workly.dto.ForgotPasswordRequest;
+import com.workly.dto.MessageResponse;
+import com.workly.dto.ResetPasswordWithOtpRequest;
+import com.workly.dto.VerifyPasswordResetOtpRequest;
+import com.workly.dto.VerifyPasswordResetOtpResponse;
+import com.workly.dto.ErrorResponse;
 import com.workly.entity.Employee;
 import com.workly.security.JwtUtil;
 import com.workly.service.EmployeeService;
+import com.workly.service.PasswordResetService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -23,6 +31,9 @@ public class AuthController {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private PasswordResetService passwordResetService;
 
 
     @PostMapping("/login")
@@ -84,5 +95,35 @@ public class AuthController {
         // attendance feature removed: logout does not record attendance
         // JWT is stateless; frontend will simply drop the token
         return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        try {
+            return ResponseEntity.ok(passwordResetService.sendOtp(request));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(500).body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/forgot-password/verify-otp")
+    public ResponseEntity<?> verifyForgotPasswordOtp(
+            @Valid @RequestBody VerifyPasswordResetOtpRequest request) {
+        try {
+            return ResponseEntity.ok(passwordResetService.verifyOtp(request));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/forgot-password/reset")
+    public ResponseEntity<?> resetPassword(@Valid @RequestBody ResetPasswordWithOtpRequest request) {
+        try {
+            return ResponseEntity.ok(passwordResetService.resetPassword(request));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
     }
 }

@@ -1,0 +1,11 @@
+[33m1fd71ce[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m fixed the designation col issue
+[33m566f57a[m fixed login issue
+[33m7e7763a[m fixed the cors issue
+[33m7133a72[m fixed the profiling, creating user, 404 not found error
+[33m9ecdbb9[m Fix CORS: allow Vercel frontend domain
+[33m4ba6ea9[m Fixed mvnw permission issue
+[33m7832722[m Renamed DockerFile to Dockerfile correctly
+[33m29fc5ee[m Fixed Dockerfile name
+[33m9db2018[m Added Dockerfile for Render deployment
+[33mb78fe32[m Configured environment variables for production
+[33me9d99b8[m Initial commit - backend (add .gitattributes/.gitignore)

@@ -7,8 +7,9 @@ import lombok.Data;
 public class CreateUserRequest {
     private String name;
     private String email;
-    private String password;
     private String phone;
+    private String phoneCountryCode;
     private String designation;
+    private String verificationToken;
     private Role role;
 }

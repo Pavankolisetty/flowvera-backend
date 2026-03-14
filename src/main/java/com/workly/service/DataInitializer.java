@@ -26,7 +26,10 @@ public class DataInitializer implements CommandLineRunner {
             admin.setName("Admin User");
             admin.setEmail("admin@flowvera.com");
             admin.setPassword(passwordEncoder.encode("admin123"));
-            admin.setPhone("1234567890");
+            admin.setPhone("+911234567890");
+            admin.setPhoneCountryCode("+91");
+            admin.setEmailVerified(true);
+            admin.setPasswordResetRequired(false);
             admin.setRole(Role.ADMIN);
             
             employeeRepository.save(admin);

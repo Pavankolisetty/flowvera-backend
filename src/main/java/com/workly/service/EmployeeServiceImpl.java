@@ -1,9 +1,13 @@
 package com.workly.service;
 
 import java.util.List;
+import com.google.i18n.phonenumbers.NumberParseException;
+import com.google.i18n.phonenumbers.PhoneNumberUtil;
+import com.google.i18n.phonenumbers.Phonenumber;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.workly.dto.CreateUserRequest;
 import com.workly.entity.Employee;
 import com.workly.entity.Role;
@@ -19,6 +23,7 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     private final TaskAssignmentRepository taskAssignmentRepo;
     private final EmployeeRepository employeeRepo;
+    private final EmailVerificationService emailVerificationService;
     
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -28,6 +33,11 @@ public class EmployeeServiceImpl implements EmployeeService {
     public Employee createEmployee(CreateUserRequest request) {
         // Validate email domain
         validateEmailDomain(request.getEmail());
+
+        // Require email verification token
+        if (request.getVerificationToken() == null || request.getVerificationToken().isBlank()) {
+            throw new IllegalArgumentException("Email must be verified before creating a user.");
+        }
         
         // Check if email already exists
         if (employeeRepo.existsByEmailIgnoreCase(request.getEmail())) {
@@ -41,19 +51,24 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
         
         // Check if phone number already exists
-        if (employeeRepo.findByPhone(request.getPhone()).isPresent()) {
-            Employee existingEmployee = employeeRepo.findByPhone(request.getPhone()).get();
+        String normalizedPhone = normalizeAndValidatePhone(request.getPhoneCountryCode(), request.getPhone());
+        if (employeeRepo.findByPhone(normalizedPhone).isPresent()) {
+            Employee existingEmployee = employeeRepo.findByPhone(normalizedPhone).get();
             throw new IllegalArgumentException("Phone number already exists. User '" + existingEmployee.getName() + "' (ID: " + existingEmployee.getEmpId() + ") is already registered with this phone number.");
         }
-        
+
         String nextEmpId = generateNextEmpId();
+        String tempPasswordHash = emailVerificationService.consumeVerifiedPasswordHash(request.getEmail(), request.getVerificationToken());
         
         Employee employee = new Employee();
         employee.setEmpId(nextEmpId);
         employee.setName(request.getName());
         employee.setEmail(request.getEmail());
-        employee.setPassword(passwordEncoder.encode(request.getPassword()));
-        employee.setPhone(request.getPhone());
+        employee.setEmailVerified(true);
+        employee.setPassword(tempPasswordHash);
+        employee.setPasswordResetRequired(true);
+        employee.setPhone(normalizedPhone);
+        employee.setPhoneCountryCode(request.getPhoneCountryCode());
         employee.setDesignation(request.getDesignation());
         // Always set role to USER - only admin can create new users and they shouldn't create other admins
         employee.setRole(Role.USER);
@@ -77,6 +92,44 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
         
         throw new IllegalArgumentException("Email domain not allowed. Please use Gmail, Outlook, Yahoo, or Zoho.");
+    }
+
+    private String normalizeAndValidatePhone(String phoneCountryCode, String phone) {
+        if (phone == null || phone.isBlank()) {
+            throw new IllegalArgumentException("Phone number is required.");
+        }
+        if (phoneCountryCode == null || phoneCountryCode.isBlank()) {
+            throw new IllegalArgumentException("Phone country code is required.");
+        }
+
+        String normalizedCountryCode = phoneCountryCode.trim();
+        if (!normalizedCountryCode.startsWith("+")) {
+            normalizedCountryCode = "+" + normalizedCountryCode.replaceAll("[^0-9]", "");
+        }
+
+        PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
+        try {
+            Phonenumber.PhoneNumber parsed = phoneUtil.parse(phone, null);
+            if (!phoneUtil.isValidNumber(parsed)) {
+                throw new IllegalArgumentException("Invalid phone number.");
+            }
+
+            String parsedCountryCode = "+" + parsed.getCountryCode();
+            if (!parsedCountryCode.equals(normalizedCountryCode)) {
+                throw new IllegalArgumentException("Phone country code does not match the phone number.");
+            }
+
+            if (parsed.getCountryCode() == 91) {
+                String national = String.valueOf(parsed.getNationalNumber());
+                if (!national.matches("[6-9]\\d{9}")) {
+                    throw new IllegalArgumentException("India phone numbers must be 10 digits and start with 6-9.");
+                }
+            }
+
+            return phoneUtil.format(parsed, PhoneNumberUtil.PhoneNumberFormat.E164);
+        } catch (NumberParseException ex) {
+            throw new IllegalArgumentException("Invalid phone number format.");
+        }
     }
 
     @Override
@@ -125,8 +178,27 @@ public class EmployeeServiceImpl implements EmployeeService {
     }
 
     @Override
+    @Transactional
     public List<Employee> getAllEmployees() {
-        return employeeRepo.findAll();
+        List<Employee> employees = employeeRepo.findAll();
+        boolean hasUpdates = false;
+
+        for (Employee employee : employees) {
+            if (employee.getEmailVerified() == null) {
+                employee.setEmailVerified(false);
+                hasUpdates = true;
+            }
+            if (employee.getPasswordResetRequired() == null) {
+                employee.setPasswordResetRequired(true);
+                hasUpdates = true;
+            }
+        }
+
+        if (hasUpdates) {
+            employeeRepo.saveAll(employees);
+        }
+
+        return employees;
     }
 
     private String generateNextEmpId() {

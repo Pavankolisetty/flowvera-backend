@@ -1,6 +1,7 @@
 package com.workly.security;
 
 import com.workly.repo.EmployeeRepository;
+import com.workly.entity.Employee;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,8 +41,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         if (empId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            if (employeeRepository.findByEmpId(empId).isPresent()) {
-                String role = jwtUtil.getRoleFromToken(token);
+            Employee employee = employeeRepository.findByEmpId(empId).orElse(null);
+            if (employee != null && employee.getRole() != null) {
+                String role = employee.getRole().name();
                 var authority = new SimpleGrantedAuthority("ROLE_" + role);
                 var authentication = new UsernamePasswordAuthenticationToken(
                         empId, null, Collections.singletonList(authority));
