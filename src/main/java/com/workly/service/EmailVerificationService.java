@@ -19,9 +19,13 @@ import com.workly.repo.EmailVerificationRepository;
 import com.workly.repo.EmployeeRepository;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class EmailVerificationService {
+
+    private static final Logger log = LoggerFactory.getLogger(EmailVerificationService.class);
 
     private static final int TEMP_PASSWORD_LENGTH = 12;
     private static final int TOKEN_LENGTH = 32;
@@ -196,6 +200,7 @@ public class EmailVerificationService {
             helper.setText(html, true);
             mailSender.send(message);
         } catch (MessagingException | MailException ex) {
+            log.error("Failed to send verification email to {}", email, ex);
             throw new IllegalStateException("Failed to send verification email. Please try again.", ex);
         }
     }

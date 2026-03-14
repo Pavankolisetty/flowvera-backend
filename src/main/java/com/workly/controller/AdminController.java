@@ -30,11 +30,15 @@ import com.workly.service.TaskService;
 import lombok.RequiredArgsConstructor;
 import java.util.List;
 import java.time.LocalDate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 public class AdminController {
+
+    private static final Logger log = LoggerFactory.getLogger(AdminController.class);
 
     private final TaskService taskService;
     
@@ -73,6 +77,7 @@ public class AdminController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         } catch (Exception e) {
+            log.error("Verify email failed for {}", request.getEmail(), e);
             return ResponseEntity.status(500).body(new ErrorResponse("Failed to send verification email: " + e.getMessage()));
         }
     }
