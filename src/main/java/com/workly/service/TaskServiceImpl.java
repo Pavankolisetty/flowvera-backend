@@ -7,6 +7,7 @@ import com.workly.dto.AssignTaskRequest;
 import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
 import com.workly.dto.ReassignTaskRequest;
+import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.entity.Employee;
 import com.workly.entity.Task;
 import com.workly.entity.TaskAssignment;
@@ -17,10 +18,6 @@ import com.workly.repo.TaskAssignmentRepository;
 import com.workly.repo.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import java.util.List;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 
 @Service
@@ -81,6 +78,10 @@ public class TaskServiceImpl implements TaskService {
         ta.setStatus(TaskStatus.ASSIGNED);
         ta.setProgress(0);
         ta.setRequiresSubmission(request.getRequiresSubmission()); // Set whether submission is required
+        ta.setSubmissionCount(0);
+        ta.setAdminNotificationUnread(false);
+        ta.setEmployeeNotificationUnread(false);
+        ta.setEmployeeCelebrationPending(false);
 
         // If task has a document, create a copy with proper naming convention: taskName + empId
         if (task.getDocumentPath() != null) {
@@ -114,6 +115,16 @@ public class TaskServiceImpl implements TaskService {
         currentAssignment.setAssignedAt(LocalDateTime.now()); // Update assignment timestamp
         currentAssignment.setStatus(TaskStatus.ASSIGNED);
         currentAssignment.setProgress(0);
+        currentAssignment.setAdminReviewComments(null);
+        currentAssignment.setReviewedAt(null);
+        currentAssignment.setReviewedBy(null);
+        currentAssignment.setLastSubmittedAt(null);
+        currentAssignment.setSubmissionCount(0);
+        currentAssignment.setAdminNotificationMessage(null);
+        currentAssignment.setAdminNotificationUnread(false);
+        currentAssignment.setEmployeeNotificationMessage(null);
+        currentAssignment.setEmployeeNotificationUnread(false);
+        currentAssignment.setEmployeeCelebrationPending(false);
         
         // Create new assignment document with new employee ID if task has a document
         if (currentAssignment.getTask().getDocumentPath() != null) {
@@ -153,15 +164,143 @@ public class TaskServiceImpl implements TaskService {
             throw new RuntimeException("Unauthorized access to task");
         }
 
+        if (!Boolean.TRUE.equals(assignment.getRequiresSubmission())) {
+            throw new RuntimeException("Document submission is not required for this task");
+        }
+
+        if (assignment.getStatus() == TaskStatus.COMPLETED) {
+            throw new RuntimeException("This task has already been accepted and completed");
+        }
+
         // Create filename as taskName + sub + empId
         String customFileName = assignment.getTask().getTitle().replaceAll("[^a-zA-Z0-9]", "_") + "_sub_" + empId;
         
         // Upload the submission document with custom name
         String filePath = fileService.uploadFileWithCustomName(file, "submissions", customFileName);
         assignment.setSubmissionDocPath(filePath);
-        assignment.setStatus(TaskStatus.COMPLETED);
-        assignment.setProgress(100);
+        assignment.setSubmissionCount((assignment.getSubmissionCount() == null ? 0 : assignment.getSubmissionCount()) + 1);
+        assignment.setLastSubmittedAt(LocalDateTime.now());
+        assignment.setStatus(TaskStatus.UNDER_REVIEW);
+        assignment.setProgress(90);
+        assignment.setAdminReviewComments(null);
+        assignment.setReviewedAt(null);
+        assignment.setReviewedBy(null);
+        assignment.setAdminNotificationMessage(buildAdminSubmissionNotification(assignment));
+        assignment.setAdminNotificationUnread(true);
+        assignment.setEmployeeNotificationMessage(
+            "Your document has been submitted successfully. Please wait for the administrator's review and confirmation."
+        );
+        assignment.setEmployeeNotificationUnread(true);
+        assignment.setEmployeeCelebrationPending(false);
 
         return assignRepo.save(assignment);
+    }
+
+    @Override
+    public TaskAssignment requestSubmissionChanges(ReviewSubmissionRequest request, String adminEmpId) {
+        TaskAssignment assignment = assignRepo.findById(request.getTaskAssignmentId()).orElseThrow();
+        String comments = request.getComments() == null ? "" : request.getComments().trim();
+
+        if (comments.isBlank()) {
+            throw new RuntimeException("Please provide comments or improvement suggestions for the employee");
+        }
+
+        if (!Boolean.TRUE.equals(assignment.getRequiresSubmission()) || assignment.getSubmissionDocPath() == null) {
+            throw new RuntimeException("No submitted document is available for review");
+        }
+
+        if (assignment.getStatus() == TaskStatus.COMPLETED) {
+            throw new RuntimeException("This task has already been accepted");
+        }
+
+        assignment.setStatus(TaskStatus.CHANGES_REQUESTED);
+        assignment.setProgress(85);
+        assignment.setAdminReviewComments(comments);
+        assignment.setReviewedBy(adminEmpId);
+        assignment.setReviewedAt(LocalDateTime.now());
+        assignment.setAdminNotificationMessage(null);
+        assignment.setAdminNotificationUnread(false);
+        assignment.setEmployeeNotificationMessage(buildEmployeeChangesNotification(assignment, comments));
+        assignment.setEmployeeNotificationUnread(true);
+        assignment.setEmployeeCelebrationPending(false);
+
+        return assignRepo.save(assignment);
+    }
+
+    @Override
+    public TaskAssignment acceptSubmission(Long taskAssignmentId, String adminEmpId) {
+        TaskAssignment assignment = assignRepo.findById(taskAssignmentId).orElseThrow();
+
+        if (!Boolean.TRUE.equals(assignment.getRequiresSubmission()) || assignment.getSubmissionDocPath() == null) {
+            throw new RuntimeException("No submitted document is available for acceptance");
+        }
+
+        assignment.setStatus(TaskStatus.COMPLETED);
+        assignment.setProgress(100);
+        assignment.setAdminReviewComments(null);
+        assignment.setReviewedBy(adminEmpId);
+        assignment.setReviewedAt(LocalDateTime.now());
+        assignment.setAdminNotificationMessage(null);
+        assignment.setAdminNotificationUnread(false);
+        assignment.setEmployeeNotificationMessage(
+            "Your submission has been accepted. This task is now marked as completed."
+        );
+        assignment.setEmployeeNotificationUnread(true);
+        assignment.setEmployeeCelebrationPending(true);
+
+        return assignRepo.save(assignment);
+    }
+
+    @Override
+    public List<TaskAssignment> markEmployeeNotificationsRead(String empId) {
+        List<TaskAssignment> assignments = assignRepo.findByEmployeeEmpId(empId);
+        boolean updated = false;
+
+        for (TaskAssignment assignment : assignments) {
+            if (Boolean.TRUE.equals(assignment.getEmployeeNotificationUnread())) {
+                assignment.setEmployeeNotificationUnread(false);
+                if (Boolean.TRUE.equals(assignment.getEmployeeCelebrationPending())) {
+                    assignment.setEmployeeCelebrationPending(false);
+                }
+                updated = true;
+            }
+        }
+
+        return updated ? assignRepo.saveAll(assignments) : assignments;
+    }
+
+    @Override
+    public List<TaskAssignment> markAdminNotificationsRead() {
+        List<TaskAssignment> assignments = assignRepo.findAll();
+        boolean updated = false;
+
+        for (TaskAssignment assignment : assignments) {
+            if (Boolean.TRUE.equals(assignment.getAdminNotificationUnread())) {
+                assignment.setAdminNotificationUnread(false);
+                updated = true;
+            }
+        }
+
+        return updated ? assignRepo.saveAll(assignments) : assignments;
+    }
+
+    private String buildAdminSubmissionNotification(TaskAssignment assignment) {
+        String employeeName = assignment.getEmployee() != null && assignment.getEmployee().getName() != null
+            ? assignment.getEmployee().getName()
+            : "The employee";
+        String taskTitle = assignment.getTask() != null && assignment.getTask().getTitle() != null
+            ? assignment.getTask().getTitle()
+            : "the assigned task";
+
+        return employeeName + " has submitted work for \"" + taskTitle
+            + "\". Please review the document and confirm acceptance or share improvement notes.";
+    }
+
+    private String buildEmployeeChangesNotification(TaskAssignment assignment, String comments) {
+        String taskTitle = assignment.getTask() != null && assignment.getTask().getTitle() != null
+            ? assignment.getTask().getTitle()
+            : "your task";
+
+        return "Review update for \"" + taskTitle + "\": " + comments;
     }
 }

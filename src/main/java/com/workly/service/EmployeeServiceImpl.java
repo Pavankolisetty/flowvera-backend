@@ -166,14 +166,22 @@ public class EmployeeServiceImpl implements EmployeeService {
     @Override
     public TaskAssignment updateProgress(Long id, int progress) {
         TaskAssignment ta = taskAssignmentRepo.findById(id).orElseThrow();
+
+        if (ta.getStatus() == TaskStatus.COMPLETED) {
+            throw new RuntimeException("This task has already been completed");
+        }
         
         // If trying to complete task (100%) and submission is required, check if document is submitted
         if (progress == 100 && ta.getRequiresSubmission() && ta.getSubmissionDocPath() == null) {
             throw new RuntimeException("Document submission is required to complete this task");
         }
+
+        if (Boolean.TRUE.equals(ta.getRequiresSubmission()) && progress == 100) {
+            throw new RuntimeException("This task will be completed only after the administrator accepts the submitted document");
+        }
         
         ta.setProgress(progress);
-        ta.setStatus(progress == 100 ? TaskStatus.COMPLETED : TaskStatus.IN_PROGRESS);
+        ta.setStatus(progress == 0 ? TaskStatus.ASSIGNED : TaskStatus.IN_PROGRESS);
         return taskAssignmentRepo.save(ta);
     }
 

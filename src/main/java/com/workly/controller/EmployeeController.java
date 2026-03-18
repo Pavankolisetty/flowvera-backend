@@ -11,6 +11,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import com.workly.dto.EmployeeProfileResponse;
+import com.workly.dto.TaskActionResponse;
 import com.workly.dto.UpdatePasswordRequest;
 import com.workly.dto.UpdateProgressRequest;
 // attendance DTO removed
@@ -101,10 +102,18 @@ public class EmployeeController {
         try {
             String empId = auth.getName();
             TaskAssignment assignment = taskService.submitDocument(assignmentId, document, empId);
-            return ResponseEntity.ok(assignment);
+            return ResponseEntity.ok(new TaskActionResponse(
+                assignment,
+                "Your document has been submitted successfully. Please wait for the administrator's review and acceptance confirmation."
+            ));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Error submitting document: " + e.getMessage());
         }
+    }
+
+    @PutMapping("/notifications/read")
+    public ResponseEntity<List<TaskAssignment>> markEmployeeNotificationsRead(Authentication auth) {
+        return ResponseEntity.ok(taskService.markEmployeeNotificationsRead(auth.getName()));
     }
 
     @GetMapping("/download-task-doc/{assignmentId}")

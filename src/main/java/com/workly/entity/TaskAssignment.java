@@ -30,6 +30,7 @@ public class TaskAssignment {
     private LocalDate dueDate;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 50)
     private TaskStatus status = TaskStatus.PENDING;
 
     private Integer progress = 0;
@@ -39,4 +40,27 @@ public class TaskAssignment {
     private String submissionDocPath; // Path to employee's submitted document
     
     private Boolean requiresSubmission = false; // Whether this task requires document submission for completion
+
+    private Integer submissionCount = 0;
+
+    private LocalDateTime lastSubmittedAt;
+
+    @Column(length = 4000)
+    private String adminReviewComments;
+
+    private String reviewedBy;
+
+    private LocalDateTime reviewedAt;
+
+    @Column(length = 500)
+    private String adminNotificationMessage;
+
+    private Boolean adminNotificationUnread = false;
+
+    @Column(length = 500)
+    private String employeeNotificationMessage;
+
+    private Boolean employeeNotificationUnread = false;
+
+    private Boolean employeeCelebrationPending = false;
 }

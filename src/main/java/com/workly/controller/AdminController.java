@@ -14,6 +14,8 @@ import com.workly.dto.CreateTaskWithFileRequest;
 import com.workly.dto.CreateUserRequest;
 import com.workly.dto.ErrorResponse;
 import com.workly.dto.ReassignTaskRequest;
+import com.workly.dto.ReviewSubmissionRequest;
+import com.workly.dto.TaskActionResponse;
 import com.workly.dto.VerifyEmailRequest;
 import com.workly.dto.VerifyEmailResponse;
 // attendance DTOs removed
@@ -147,6 +149,37 @@ public class AdminController {
     public ResponseEntity<List<TaskAssignment>> getAllTaskAssignments() {
         List<TaskAssignment> assignments = assignmentRepo.findAll();
         return ResponseEntity.ok(assignments);
+    }
+
+    @PostMapping("/submission/request-changes")
+    public ResponseEntity<?> requestSubmissionChanges(@RequestBody ReviewSubmissionRequest request, Authentication auth) {
+        try {
+            TaskAssignment assignment = taskService.requestSubmissionChanges(request, auth.getName());
+            return ResponseEntity.ok(new TaskActionResponse(
+                assignment,
+                "Improvement notes shared with the employee successfully."
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/submission/accept/{assignmentId}")
+    public ResponseEntity<?> acceptSubmission(@PathVariable Long assignmentId, Authentication auth) {
+        try {
+            TaskAssignment assignment = taskService.acceptSubmission(assignmentId, auth.getName());
+            return ResponseEntity.ok(new TaskActionResponse(
+                assignment,
+                "Submission accepted successfully. The task is now completed."
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PutMapping("/notifications/read")
+    public ResponseEntity<List<TaskAssignment>> markAdminNotificationsRead() {
+        return ResponseEntity.ok(taskService.markAdminNotificationsRead());
     }
     
     @GetMapping("/tasks")
