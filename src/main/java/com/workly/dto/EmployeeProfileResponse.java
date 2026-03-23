@@ -10,5 +10,9 @@ public class EmployeeProfileResponse {
     private String email;
     private String role;
     private String phone;
+    private String designation;
     private LocalDateTime createdAt;
+    private Integer totalTasksAssigned;
+    private Integer totalTasksCompleted;
+    private Integer averageProgress;
 }

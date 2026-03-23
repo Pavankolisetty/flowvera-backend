@@ -16,10 +16,11 @@ public interface TaskService {
     TaskAssignment assignTask(AssignTaskRequest request, String assignedBy);
     TaskAssignment reassignTask(ReassignTaskRequest request, String adminEmpId);
     List<TaskAssignment> getTasksByEmpId(String empId);
+    List<TaskAssignment> getAssignmentsCreatedBy(String assignedBy);
     TaskAssignment submitDocument(Long taskAssignmentId, MultipartFile file, String empId) throws Exception;
-    TaskAssignment requestSubmissionChanges(ReviewSubmissionRequest request, String adminEmpId);
-    TaskAssignment acceptSubmission(Long taskAssignmentId, String adminEmpId);
+    TaskAssignment requestSubmissionChanges(ReviewSubmissionRequest request, String reviewerEmpId);
+    TaskAssignment acceptSubmission(Long taskAssignmentId, String reviewerEmpId);
     List<TaskAssignment> markEmployeeNotificationsRead(String empId);
-    List<TaskAssignment> markAdminNotificationsRead();
+    List<TaskAssignment> markReviewerNotificationsRead(String reviewerEmpId);
 }
 

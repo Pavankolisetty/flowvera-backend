@@ -157,7 +157,7 @@ public class AdminController {
             TaskAssignment assignment = taskService.requestSubmissionChanges(request, auth.getName());
             return ResponseEntity.ok(new TaskActionResponse(
                 assignment,
-                "Improvement notes shared with the employee successfully."
+                "Improvement notes shared with the assignee successfully."
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
@@ -178,8 +178,8 @@ public class AdminController {
     }
 
     @PutMapping("/notifications/read")
-    public ResponseEntity<List<TaskAssignment>> markAdminNotificationsRead() {
-        return ResponseEntity.ok(taskService.markAdminNotificationsRead());
+    public ResponseEntity<List<TaskAssignment>> markAdminNotificationsRead(Authentication auth) {
+        return ResponseEntity.ok(taskService.markReviewerNotificationsRead(auth.getName()));
     }
     
     @GetMapping("/tasks")

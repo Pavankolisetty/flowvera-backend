@@ -10,6 +10,9 @@ public interface TaskAssignmentRepository extends JpaRepository<TaskAssignment, 
     List<TaskAssignment> findByEmployeeEmpId(String empId);
     Optional<TaskAssignment> findByIdAndEmployeeEmpId(Long id, String empId);
     List<TaskAssignment> findByEmployeeEmpIdAndStatusNot(String empId, TaskStatus status);
+    List<TaskAssignment> findByAssignedByOrderByAssignedAtDesc(String assignedBy);
+    long countByEmployeeEmpId(String empId);
+    long countByEmployeeEmpIdAndStatus(String empId, TaskStatus status);
     
     // Check if task is already assigned to employee
     boolean existsByTaskIdAndEmployeeEmpId(Long taskId, String empId);

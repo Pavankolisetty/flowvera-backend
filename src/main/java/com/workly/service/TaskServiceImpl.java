@@ -9,6 +9,7 @@ import com.workly.dto.CreateTaskWithFileRequest;
 import com.workly.dto.ReassignTaskRequest;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.entity.Employee;
+import com.workly.entity.Role;
 import com.workly.entity.Task;
 import com.workly.entity.TaskAssignment;
 import com.workly.entity.TaskStatus;
@@ -63,6 +64,19 @@ public class TaskServiceImpl implements TaskService {
     public TaskAssignment assignTask(AssignTaskRequest request, String assignedBy) {
         Task task = taskRepo.findById(request.getTaskId()).orElseThrow();
         Employee emp = empRepo.findByEmpId(request.getEmpId()).orElseThrow();
+        Employee assigner = empRepo.findByEmpId(assignedBy).orElseThrow();
+
+        if (assignedBy.equals(emp.getEmpId())) {
+            throw new RuntimeException("You cannot assign a task to yourself");
+        }
+
+        if (emp.getRole() == Role.ADMIN) {
+            throw new RuntimeException("Tasks can only be assigned to employee accounts");
+        }
+
+        if (assigner.getRole() != Role.ADMIN && request.getDueDate() == null) {
+            throw new RuntimeException("A due date is required when delegating a task");
+        }
 
         // Check if task is already assigned to this employee
         if (assignRepo.existsByTaskIdAndEmployeeEmpId(request.getTaskId(), request.getEmpId())) {
@@ -156,6 +170,11 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
+    public List<TaskAssignment> getAssignmentsCreatedBy(String assignedBy) {
+        return assignRepo.findByAssignedByOrderByAssignedAtDesc(assignedBy);
+    }
+
+    @Override
     public TaskAssignment submitDocument(Long taskAssignmentId, MultipartFile file, String empId) throws Exception {
         TaskAssignment assignment = assignRepo.findById(taskAssignmentId).orElseThrow();
         
@@ -185,10 +204,10 @@ public class TaskServiceImpl implements TaskService {
         assignment.setAdminReviewComments(null);
         assignment.setReviewedAt(null);
         assignment.setReviewedBy(null);
-        assignment.setAdminNotificationMessage(buildAdminSubmissionNotification(assignment));
+        assignment.setAdminNotificationMessage(buildReviewerSubmissionNotification(assignment));
         assignment.setAdminNotificationUnread(true);
         assignment.setEmployeeNotificationMessage(
-            "Your document has been submitted successfully. Please wait for the administrator's review and confirmation."
+            "Your document has been submitted successfully. Please wait for the assigner to review and confirm it."
         );
         assignment.setEmployeeNotificationUnread(true);
         assignment.setEmployeeCelebrationPending(false);
@@ -197,9 +216,11 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public TaskAssignment requestSubmissionChanges(ReviewSubmissionRequest request, String adminEmpId) {
+    public TaskAssignment requestSubmissionChanges(ReviewSubmissionRequest request, String reviewerEmpId) {
         TaskAssignment assignment = assignRepo.findById(request.getTaskAssignmentId()).orElseThrow();
         String comments = request.getComments() == null ? "" : request.getComments().trim();
+
+        validateReviewerAccess(assignment, reviewerEmpId);
 
         if (comments.isBlank()) {
             throw new RuntimeException("Please provide comments or improvement suggestions for the employee");
@@ -216,7 +237,7 @@ public class TaskServiceImpl implements TaskService {
         assignment.setStatus(TaskStatus.CHANGES_REQUESTED);
         assignment.setProgress(85);
         assignment.setAdminReviewComments(comments);
-        assignment.setReviewedBy(adminEmpId);
+        assignment.setReviewedBy(reviewerEmpId);
         assignment.setReviewedAt(LocalDateTime.now());
         assignment.setAdminNotificationMessage(null);
         assignment.setAdminNotificationUnread(false);
@@ -228,8 +249,10 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public TaskAssignment acceptSubmission(Long taskAssignmentId, String adminEmpId) {
+    public TaskAssignment acceptSubmission(Long taskAssignmentId, String reviewerEmpId) {
         TaskAssignment assignment = assignRepo.findById(taskAssignmentId).orElseThrow();
+
+        validateReviewerAccess(assignment, reviewerEmpId);
 
         if (!Boolean.TRUE.equals(assignment.getRequiresSubmission()) || assignment.getSubmissionDocPath() == null) {
             throw new RuntimeException("No submitted document is available for acceptance");
@@ -238,7 +261,7 @@ public class TaskServiceImpl implements TaskService {
         assignment.setStatus(TaskStatus.COMPLETED);
         assignment.setProgress(100);
         assignment.setAdminReviewComments(null);
-        assignment.setReviewedBy(adminEmpId);
+        assignment.setReviewedBy(reviewerEmpId);
         assignment.setReviewedAt(LocalDateTime.now());
         assignment.setAdminNotificationMessage(null);
         assignment.setAdminNotificationUnread(false);
@@ -270,8 +293,8 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public List<TaskAssignment> markAdminNotificationsRead() {
-        List<TaskAssignment> assignments = assignRepo.findAll();
+    public List<TaskAssignment> markReviewerNotificationsRead(String reviewerEmpId) {
+        List<TaskAssignment> assignments = assignRepo.findByAssignedByOrderByAssignedAtDesc(reviewerEmpId);
         boolean updated = false;
 
         for (TaskAssignment assignment : assignments) {
@@ -284,7 +307,7 @@ public class TaskServiceImpl implements TaskService {
         return updated ? assignRepo.saveAll(assignments) : assignments;
     }
 
-    private String buildAdminSubmissionNotification(TaskAssignment assignment) {
+    private String buildReviewerSubmissionNotification(TaskAssignment assignment) {
         String employeeName = assignment.getEmployee() != null && assignment.getEmployee().getName() != null
             ? assignment.getEmployee().getName()
             : "The employee";
@@ -302,5 +325,24 @@ public class TaskServiceImpl implements TaskService {
             : "your task";
 
         return "Review update for \"" + taskTitle + "\": " + comments;
+    }
+
+    private void validateReviewerAccess(TaskAssignment assignment, String reviewerEmpId) {
+        if (reviewerEmpId == null || reviewerEmpId.isBlank()) {
+            throw new RuntimeException("Reviewer identity is missing");
+        }
+
+        if (reviewerEmpId.equals(assignment.getAssignedBy())) {
+            return;
+        }
+
+        Employee reviewer = empRepo.findByEmpId(reviewerEmpId).orElseThrow();
+        Employee assigner = empRepo.findByEmpId(assignment.getAssignedBy()).orElse(null);
+
+        if (reviewer.getRole() == Role.ADMIN && assigner != null && assigner.getRole() == Role.ADMIN) {
+            return;
+        }
+
+        throw new RuntimeException("Only the original assigner can review this submission");
     }
 }

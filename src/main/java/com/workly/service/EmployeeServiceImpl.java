@@ -9,6 +9,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.workly.dto.CreateUserRequest;
+import com.workly.dto.EmployeeProfileResponse;
+import com.workly.dto.UpdateProfileRequest;
 import com.workly.entity.Employee;
 import com.workly.entity.Role;
 import com.workly.entity.TaskAssignment;
@@ -143,6 +145,54 @@ public class EmployeeServiceImpl implements EmployeeService {
     }
 
     @Override
+    public EmployeeProfileResponse getProfile(String empId) {
+        Employee employee = employeeRepo.findByEmpId(empId)
+            .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+        return buildProfileResponse(employee);
+    }
+
+    @Override
+    public EmployeeProfileResponse updateProfile(String empId, UpdateProfileRequest request) {
+        Employee employee = employeeRepo.findByEmpId(empId)
+            .orElseThrow(() -> new IllegalArgumentException("Employee not found"));
+
+        String nextName = request.getName() == null ? "" : request.getName().trim();
+        String nextEmail = request.getEmail() == null ? "" : request.getEmail().trim().toLowerCase();
+        String nextPhone = request.getPhone() == null ? "" : request.getPhone().trim();
+
+        if (nextName.isBlank()) {
+            throw new IllegalArgumentException("Name is required.");
+        }
+        if (nextEmail.isBlank()) {
+            throw new IllegalArgumentException("Email is required.");
+        }
+        if (nextPhone.isBlank()) {
+            throw new IllegalArgumentException("Phone number is required.");
+        }
+
+        validateEmailDomain(nextEmail);
+
+        Employee existingEmailUser = employeeRepo
+            .findFirstByEmailIgnoreCaseOrderByCreatedAtDesc(nextEmail)
+            .orElse(null);
+        if (existingEmailUser != null && !existingEmailUser.getEmpId().equals(empId)) {
+            throw new IllegalArgumentException("That email is already used by another account.");
+        }
+
+        String normalizedPhone = normalizeProfilePhone(employee, nextPhone);
+        Employee existingPhoneUser = employeeRepo.findByPhone(normalizedPhone).orElse(null);
+        if (existingPhoneUser != null && !existingPhoneUser.getEmpId().equals(empId)) {
+            throw new IllegalArgumentException("That phone number is already used by another account.");
+        }
+
+        employee.setName(nextName);
+        employee.setEmail(nextEmail);
+        employee.setPhone(normalizedPhone);
+        employeeRepo.save(employee);
+        return buildProfileResponse(employee);
+    }
+
+    @Override
     public boolean updatePassword(String empId, String oldPassword, String newPassword) {
         Employee employee = findByEmpId(empId);
         if (employee != null && passwordEncoder.matches(oldPassword, employee.getPassword())) {
@@ -164,8 +214,12 @@ public class EmployeeServiceImpl implements EmployeeService {
     }
 
     @Override
-    public TaskAssignment updateProgress(Long id, int progress) {
+    public TaskAssignment updateProgress(Long id, int progress, String empId) {
         TaskAssignment ta = taskAssignmentRepo.findById(id).orElseThrow();
+
+        if (!ta.getEmployee().getEmpId().equals(empId)) {
+            throw new RuntimeException("You can only update progress for your own assigned tasks");
+        }
 
         if (ta.getStatus() == TaskStatus.COMPLETED) {
             throw new RuntimeException("This task has already been completed");
@@ -177,7 +231,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
 
         if (Boolean.TRUE.equals(ta.getRequiresSubmission()) && progress == 100) {
-            throw new RuntimeException("This task will be completed only after the administrator accepts the submitted document");
+            throw new RuntimeException("This task will be completed only after the reviewer accepts the submitted document");
         }
         
         ta.setProgress(progress);
@@ -216,5 +270,50 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
         int nextId = Integer.parseInt(maxEmpId) + 1;
         return String.format("%04d", nextId);
+    }
+
+    private String normalizeProfilePhone(Employee employee, String phone) {
+        if (phone.startsWith("+")) {
+            PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
+            try {
+                Phonenumber.PhoneNumber parsed = phoneUtil.parse(phone, null);
+                if (!phoneUtil.isValidNumber(parsed)) {
+                    throw new IllegalArgumentException("Invalid phone number.");
+                }
+                employee.setPhoneCountryCode("+" + parsed.getCountryCode());
+                return phoneUtil.format(parsed, PhoneNumberUtil.PhoneNumberFormat.E164);
+            } catch (NumberParseException ex) {
+                throw new IllegalArgumentException("Invalid phone number format.");
+            }
+        }
+
+        return normalizeAndValidatePhone(employee.getPhoneCountryCode(), phone);
+    }
+
+    private EmployeeProfileResponse buildProfileResponse(Employee employee) {
+        List<TaskAssignment> assignments = taskAssignmentRepo.findByEmployeeEmpId(employee.getEmpId());
+        int totalAssigned = assignments.size();
+        int totalCompleted = (int) assignments.stream()
+            .filter(assignment -> assignment.getStatus() == TaskStatus.COMPLETED)
+            .count();
+        int averageProgress = totalAssigned == 0
+            ? 0
+            : (int) Math.round(assignments.stream()
+                .mapToInt(assignment -> assignment.getProgress() == null ? 0 : assignment.getProgress())
+                .average()
+                .orElse(0));
+
+        EmployeeProfileResponse response = new EmployeeProfileResponse();
+        response.setEmpId(employee.getEmpId());
+        response.setName(employee.getName());
+        response.setEmail(employee.getEmail());
+        response.setRole(employee.getRole().name());
+        response.setPhone(employee.getPhone());
+        response.setDesignation(employee.getDesignation());
+        response.setCreatedAt(employee.getCreatedAt());
+        response.setTotalTasksAssigned(totalAssigned);
+        response.setTotalTasksCompleted(totalCompleted);
+        response.setAverageProgress(averageProgress);
+        return response;
     }
 }

@@ -58,6 +58,7 @@ public class AuthController {
         response.setName(employee.getName());
         response.setEmail(employee.getEmail());
         response.setRole(employee.getRole().name());
+        response.setDesignation(employee.getDesignation());
         response.setToken(token);
 
         return ResponseEntity.ok(response);
@@ -85,6 +86,7 @@ public class AuthController {
         response.setName(employee.getName());
         response.setEmail(employee.getEmail());
         response.setRole(employee.getRole().name());
+        response.setDesignation(employee.getDesignation());
         response.setToken(token);
 
         return ResponseEntity.ok(response);
