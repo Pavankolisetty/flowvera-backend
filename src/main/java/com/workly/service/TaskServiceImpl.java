@@ -12,10 +12,12 @@ import com.workly.entity.Employee;
 import com.workly.entity.Role;
 import com.workly.entity.Task;
 import com.workly.entity.TaskAssignment;
+import com.workly.entity.TaskProgressHistory;
 import com.workly.entity.TaskStatus;
 import com.workly.entity.TaskType;
 import com.workly.repo.EmployeeRepository;
 import com.workly.repo.TaskAssignmentRepository;
+import com.workly.repo.TaskProgressHistoryRepository;
 import com.workly.repo.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import java.util.List;
@@ -28,6 +30,7 @@ public class TaskServiceImpl implements TaskService {
     private final TaskRepository taskRepo;
     private final EmployeeRepository empRepo;
     private final TaskAssignmentRepository assignRepo;
+    private final TaskProgressHistoryRepository taskProgressHistoryRepo;
     
     @Autowired
     private FileService fileService;
@@ -115,7 +118,9 @@ public class TaskServiceImpl implements TaskService {
             }
         }
 
-        return assignRepo.save(ta);
+        TaskAssignment saved = assignRepo.save(ta);
+        recordProgressHistory(saved, 0, TaskStatus.ASSIGNED, saved.getAssignedAt(), "ASSIGNED");
+        return saved;
     }
 
     @Override
@@ -161,7 +166,9 @@ public class TaskServiceImpl implements TaskService {
         // Remove submission document as it's being reassigned
         currentAssignment.setSubmissionDocPath(null);
 
-        return assignRepo.save(currentAssignment);
+        TaskAssignment saved = assignRepo.save(currentAssignment);
+        recordProgressHistory(saved, 0, TaskStatus.ASSIGNED, saved.getAssignedAt(), "REASSIGNED");
+        return saved;
     }
 
     @Override
@@ -212,7 +219,9 @@ public class TaskServiceImpl implements TaskService {
         assignment.setEmployeeNotificationUnread(true);
         assignment.setEmployeeCelebrationPending(false);
 
-        return assignRepo.save(assignment);
+        TaskAssignment saved = assignRepo.save(assignment);
+        recordProgressHistory(saved, 90, TaskStatus.UNDER_REVIEW, assignment.getLastSubmittedAt(), "SUBMITTED");
+        return saved;
     }
 
     @Override
@@ -245,7 +254,9 @@ public class TaskServiceImpl implements TaskService {
         assignment.setEmployeeNotificationUnread(true);
         assignment.setEmployeeCelebrationPending(false);
 
-        return assignRepo.save(assignment);
+        TaskAssignment saved = assignRepo.save(assignment);
+        recordProgressHistory(saved, 85, TaskStatus.CHANGES_REQUESTED, assignment.getReviewedAt(), "CHANGES_REQUESTED");
+        return saved;
     }
 
     @Override
@@ -271,7 +282,9 @@ public class TaskServiceImpl implements TaskService {
         assignment.setEmployeeNotificationUnread(true);
         assignment.setEmployeeCelebrationPending(true);
 
-        return assignRepo.save(assignment);
+        TaskAssignment saved = assignRepo.save(assignment);
+        recordProgressHistory(saved, 100, TaskStatus.COMPLETED, assignment.getReviewedAt(), "ACCEPTED");
+        return saved;
     }
 
     @Override
@@ -344,5 +357,20 @@ public class TaskServiceImpl implements TaskService {
         }
 
         throw new RuntimeException("Only the original assigner can review this submission");
+    }
+
+    private void recordProgressHistory(
+            TaskAssignment assignment,
+            int progress,
+            TaskStatus status,
+            LocalDateTime recordedAt,
+            String source) {
+        TaskProgressHistory history = new TaskProgressHistory();
+        history.setTaskAssignment(assignment);
+        history.setProgress(progress);
+        history.setStatus(status);
+        history.setRecordedAt(recordedAt == null ? LocalDateTime.now() : recordedAt);
+        history.setSource(source);
+        taskProgressHistoryRepo.save(history);
     }
 }

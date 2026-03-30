@@ -12,10 +12,12 @@ import com.workly.dto.CreateUserRequest;
 import com.workly.dto.EmployeeProfileResponse;
 import com.workly.dto.UpdateProfileRequest;
 import com.workly.entity.Employee;
+import com.workly.entity.TaskProgressHistory;
 import com.workly.entity.Role;
 import com.workly.entity.TaskAssignment;
 import com.workly.entity.TaskStatus;
 import com.workly.repo.EmployeeRepository;
+import com.workly.repo.TaskProgressHistoryRepository;
 import com.workly.repo.TaskAssignmentRepository;
 import lombok.RequiredArgsConstructor;
 
@@ -26,6 +28,7 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final TaskAssignmentRepository taskAssignmentRepo;
     private final EmployeeRepository employeeRepo;
     private final EmailVerificationService emailVerificationService;
+    private final TaskProgressHistoryRepository taskProgressHistoryRepo;
     
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -205,11 +208,12 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public List<TaskAssignment> viewMyTasks(String empId) {
-        return taskAssignmentRepo.findByEmployeeEmpId(empId);
+        return normalizeAutoCompletedAssignments(taskAssignmentRepo.findByEmployeeEmpId(empId));
     }
 
     @Override
     public List<TaskAssignment> viewMyActiveTasks(String empId) {
+        normalizeAutoCompletedAssignments(taskAssignmentRepo.findByEmployeeEmpId(empId));
         return taskAssignmentRepo.findByEmployeeEmpIdAndStatusNot(empId, TaskStatus.COMPLETED);
     }
 
@@ -235,8 +239,18 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
         
         ta.setProgress(progress);
-        ta.setStatus(progress == 0 ? TaskStatus.ASSIGNED : TaskStatus.IN_PROGRESS);
-        return taskAssignmentRepo.save(ta);
+        if (progress >= 100 && !Boolean.TRUE.equals(ta.getRequiresSubmission())) {
+            ta.setStatus(TaskStatus.COMPLETED);
+            ta.setEmployeeNotificationMessage("Task marked as completed successfully.");
+            ta.setEmployeeNotificationUnread(true);
+            ta.setEmployeeCelebrationPending(true);
+        } else {
+            ta.setStatus(progress == 0 ? TaskStatus.ASSIGNED : TaskStatus.IN_PROGRESS);
+        }
+
+        TaskAssignment saved = taskAssignmentRepo.save(ta);
+        recordProgressHistory(saved, saved.getProgress(), saved.getStatus(), "PROGRESS_UPDATED");
+        return saved;
     }
 
     @Override
@@ -291,7 +305,9 @@ public class EmployeeServiceImpl implements EmployeeService {
     }
 
     private EmployeeProfileResponse buildProfileResponse(Employee employee) {
-        List<TaskAssignment> assignments = taskAssignmentRepo.findByEmployeeEmpId(employee.getEmpId());
+        List<TaskAssignment> assignments = normalizeAutoCompletedAssignments(
+            taskAssignmentRepo.findByEmployeeEmpId(employee.getEmpId())
+        );
         int totalAssigned = assignments.size();
         int totalCompleted = (int) assignments.stream()
             .filter(assignment -> assignment.getStatus() == TaskStatus.COMPLETED)
@@ -315,5 +331,38 @@ public class EmployeeServiceImpl implements EmployeeService {
         response.setTotalTasksCompleted(totalCompleted);
         response.setAverageProgress(averageProgress);
         return response;
+    }
+
+    private List<TaskAssignment> normalizeAutoCompletedAssignments(List<TaskAssignment> assignments) {
+        boolean updated = false;
+
+        for (TaskAssignment assignment : assignments) {
+            if (!Boolean.TRUE.equals(assignment.getRequiresSubmission())
+                    && assignment.getProgress() != null
+                    && assignment.getProgress() >= 100
+                    && assignment.getStatus() != TaskStatus.COMPLETED) {
+                assignment.setStatus(TaskStatus.COMPLETED);
+                assignment.setEmployeeNotificationMessage("Task marked as completed successfully.");
+                assignment.setEmployeeNotificationUnread(true);
+                assignment.setEmployeeCelebrationPending(true);
+                updated = true;
+            }
+        }
+
+        if (updated) {
+            taskAssignmentRepo.saveAll(assignments);
+        }
+
+        return assignments;
+    }
+
+    private void recordProgressHistory(TaskAssignment assignment, Integer progress, TaskStatus status, String source) {
+        TaskProgressHistory history = new TaskProgressHistory();
+        history.setTaskAssignment(assignment);
+        history.setProgress(progress == null ? 0 : progress);
+        history.setStatus(status);
+        history.setRecordedAt(java.time.LocalDateTime.now());
+        history.setSource(source);
+        taskProgressHistoryRepo.save(history);
     }
 }

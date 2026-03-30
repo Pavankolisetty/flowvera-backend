@@ -1,23 +1,26 @@
 package com.workly.controller;
 
+import com.workly.dto.ErrorResponse;
+import com.workly.dto.ForgotPasswordRequest;
 import com.workly.dto.LoginEmailRequest;
 import com.workly.dto.LoginRequest;
 import com.workly.dto.LoginResponse;
-import com.workly.dto.ForgotPasswordRequest;
-import com.workly.dto.MessageResponse;
 import com.workly.dto.ResetPasswordWithOtpRequest;
 import com.workly.dto.VerifyPasswordResetOtpRequest;
-import com.workly.dto.VerifyPasswordResetOtpResponse;
-import com.workly.dto.ErrorResponse;
 import com.workly.entity.Employee;
 import com.workly.security.JwtUtil;
+import com.workly.service.AttendanceService;
 import com.workly.service.EmployeeService;
 import com.workly.service.PasswordResetService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -35,11 +38,13 @@ public class AuthController {
     @Autowired
     private PasswordResetService passwordResetService;
 
+    @Autowired
+    private AttendanceService attendanceService;
 
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request) {
         Employee employee = employeeService.findByEmpId(request.getEmpId());
-        
+
         if (employee == null) {
             return ResponseEntity.badRequest().body("Employee not found");
         }
@@ -48,20 +53,7 @@ public class AuthController {
             return ResponseEntity.badRequest().body("Invalid password");
         }
 
-        String empId = employee.getEmpId();
-        String token = jwtUtil.generateToken(empId, employee.getRole().name());
-
-        // attendance feature removed: login will not record attendance
-
-        LoginResponse response = new LoginResponse();
-        response.setEmpId(empId);
-        response.setName(employee.getName());
-        response.setEmail(employee.getEmail());
-        response.setRole(employee.getRole().name());
-        response.setDesignation(employee.getDesignation());
-        response.setToken(token);
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(buildLoginResponse(employee));
     }
 
     @PostMapping("/login-email")
@@ -76,26 +68,16 @@ public class AuthController {
             return ResponseEntity.badRequest().body("Invalid password");
         }
 
-        String empId = employee.getEmpId();
-        String token = jwtUtil.generateToken(empId, employee.getRole().name());
-
-        // attendance feature removed: login will not record attendance
-
-        LoginResponse response = new LoginResponse();
-        response.setEmpId(empId);
-        response.setName(employee.getName());
-        response.setEmail(employee.getEmail());
-        response.setRole(employee.getRole().name());
-        response.setDesignation(employee.getDesignation());
-        response.setToken(token);
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(buildLoginResponse(employee));
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<?> logout(org.springframework.security.core.Authentication authentication) {
-        // attendance feature removed: logout does not record attendance
-        // JWT is stateless; frontend will simply drop the token
+    public ResponseEntity<?> logout(
+            org.springframework.security.core.Authentication authentication,
+            @RequestHeader(value = "X-Attendance-Session-Key", required = false) String sessionKey) {
+        if (authentication != null) {
+            attendanceService.handleLogout(authentication.getName(), sessionKey);
+        }
         return ResponseEntity.ok().build();
     }
 
@@ -127,5 +109,16 @@ public class AuthController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
+    }
+
+    private LoginResponse buildLoginResponse(Employee employee) {
+        LoginResponse response = new LoginResponse();
+        response.setEmpId(employee.getEmpId());
+        response.setName(employee.getName());
+        response.setEmail(employee.getEmail());
+        response.setRole(employee.getRole().name());
+        response.setDesignation(employee.getDesignation());
+        response.setToken(jwtUtil.generateToken(employee.getEmpId(), employee.getRole().name()));
+        return response;
     }
 }

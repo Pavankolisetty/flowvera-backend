@@ -1,9 +1,12 @@
 package com.workly.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "task_assignments")
@@ -63,4 +66,9 @@ public class TaskAssignment {
     private Boolean employeeNotificationUnread = false;
 
     private Boolean employeeCelebrationPending = false;
+
+    @OneToMany(mappedBy = "taskAssignment", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("recordedAt ASC")
+    @JsonIgnoreProperties("taskAssignment")
+    private List<TaskProgressHistory> progressHistory = new ArrayList<>();
 }

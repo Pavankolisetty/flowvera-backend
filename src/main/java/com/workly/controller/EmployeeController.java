@@ -1,35 +1,44 @@
 package com.workly.controller;
 
-import java.util.List;
+import com.workly.dto.AssignTaskRequest;
+import com.workly.dto.AttendanceActionRequest;
+import com.workly.dto.CreateTaskRequest;
+import com.workly.dto.CreateTaskWithFileRequest;
+import com.workly.dto.EmployeeAttendanceOverviewDto;
+import com.workly.dto.EmployeeProfileResponse;
+import com.workly.dto.ErrorResponse;
+import com.workly.dto.ReviewSubmissionRequest;
+import com.workly.dto.TaskActionResponse;
+import com.workly.dto.UpdatePasswordRequest;
+import com.workly.dto.UpdateProgressRequest;
+import com.workly.entity.Employee;
+import com.workly.entity.Task;
+import com.workly.entity.TaskAssignment;
+import com.workly.entity.TaskType;
+import com.workly.repo.TaskAssignmentRepository;
+import com.workly.service.AttendanceService;
+import com.workly.service.EmployeeService;
+import com.workly.service.FileService;
+import com.workly.service.TaskService;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import com.workly.dto.EmployeeProfileResponse;
-import com.workly.dto.AssignTaskRequest;
-import com.workly.dto.CreateTaskRequest;
-import com.workly.dto.CreateTaskWithFileRequest;
-import com.workly.dto.ErrorResponse;
-import com.workly.dto.ReviewSubmissionRequest;
-import com.workly.dto.TaskActionResponse;
-import com.workly.dto.UpdatePasswordRequest;
-import com.workly.dto.UpdateProgressRequest;
-// attendance DTO removed
-import com.workly.entity.TaskAssignment;
-import com.workly.entity.Employee;
-import com.workly.entity.Task;
-import com.workly.entity.TaskType;
-import com.workly.repo.TaskAssignmentRepository;
-import com.workly.service.EmployeeService;
-// attendance service removed
-import com.workly.service.FileService;
-import com.workly.service.TaskService;
-import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/employee")
@@ -38,11 +47,11 @@ public class EmployeeController {
 
     private final EmployeeService employeeService;
     private final TaskService taskService;
-    // attendance service removed
-    
+    private final AttendanceService attendanceService;
+
     @Autowired
     private FileService fileService;
-    
+
     @Autowired
     private TaskAssignmentRepository assignmentRepo;
 
@@ -59,16 +68,12 @@ public class EmployeeController {
 
     @GetMapping("/my-tasks")
     public ResponseEntity<List<TaskAssignment>> myTasks(Authentication auth) {
-        String empId = auth.getName();
-        List<TaskAssignment> tasks = employeeService.viewMyTasks(empId);
-        return ResponseEntity.ok(tasks);
+        return ResponseEntity.ok(employeeService.viewMyTasks(auth.getName()));
     }
 
     @GetMapping("/my-tasks/active")
     public ResponseEntity<List<TaskAssignment>> myActiveTasks(Authentication auth) {
-        String empId = auth.getName();
-        List<TaskAssignment> tasks = employeeService.viewMyActiveTasks(empId);
-        return ResponseEntity.ok(tasks);
+        return ResponseEntity.ok(employeeService.viewMyActiveTasks(auth.getName()));
     }
 
     @GetMapping("/me")
@@ -76,7 +81,35 @@ public class EmployeeController {
         return ResponseEntity.ok(employeeService.getProfile(auth.getName()));
     }
 
-    // Attendance endpoint removed — feature disabled/cleaned up
+    @GetMapping("/attendance")
+    public ResponseEntity<EmployeeAttendanceOverviewDto> getAttendanceOverview(
+            Authentication auth,
+            @RequestParam(value = "sessionKey", required = false) String sessionKey,
+            @RequestParam(value = "month", required = false) String month) {
+        YearMonth targetMonth = month == null || month.isBlank() ? null : YearMonth.parse(month);
+        return ResponseEntity.ok(attendanceService.getEmployeeOverview(auth.getName(), sessionKey, targetMonth));
+    }
+
+    @PostMapping("/attendance/clock-in")
+    public ResponseEntity<EmployeeAttendanceOverviewDto> clockIn(
+            @RequestBody AttendanceActionRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(attendanceService.clockIn(auth.getName(), request.getSessionKey()));
+    }
+
+    @PostMapping("/attendance/heartbeat")
+    public ResponseEntity<EmployeeAttendanceOverviewDto> heartbeat(
+            @RequestBody AttendanceActionRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(attendanceService.heartbeat(auth.getName(), request.getSessionKey()));
+    }
+
+    @PostMapping("/attendance/clock-out")
+    public ResponseEntity<EmployeeAttendanceOverviewDto> clockOut(
+            @RequestBody AttendanceActionRequest request,
+            Authentication auth) {
+        return ResponseEntity.ok(attendanceService.clockOut(auth.getName(), request.getSessionKey()));
+    }
 
     @PutMapping("/update-progress")
     public ResponseEntity<?> updateProgress(@RequestBody UpdateProgressRequest request, Authentication auth) {
@@ -261,18 +294,16 @@ public class EmployeeController {
             TaskAssignment assignment = assignmentRepo.findByIdAndEmployeeEmpId(assignmentId, empId)
                 .orElseThrow(() -> new RuntimeException("Task not found or unauthorized"));
 
-            // Use assignment document path (with proper naming) if available, otherwise fall back to task document
-            String documentPath = assignment.getAssignmentDocPath() != null ? 
-                assignment.getAssignmentDocPath() : assignment.getTask().getDocumentPath();
-            
+            String documentPath = assignment.getAssignmentDocPath() != null
+                ? assignment.getAssignmentDocPath()
+                : assignment.getTask().getDocumentPath();
+
             if (documentPath == null) {
                 return ResponseEntity.notFound().build();
             }
 
             byte[] data = fileService.downloadFile(documentPath);
             String filename = fileService.getFileName(documentPath);
-            
-            // Determine content type based on file extension
             String contentType = determineContentType(filename);
 
             return ResponseEntity.ok()
@@ -284,7 +315,7 @@ public class EmployeeController {
             return ResponseEntity.badRequest().build();
         }
     }
-    
+
     private String determineContentType(String filename) {
         String extension = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
         switch (extension) {
@@ -333,4 +364,3 @@ public class EmployeeController {
         }
     }
 }
-
