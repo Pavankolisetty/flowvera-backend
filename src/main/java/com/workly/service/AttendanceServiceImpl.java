@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.DayOfWeek;
 import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -44,11 +45,14 @@ public class AttendanceServiceImpl implements AttendanceService {
     @Value("${attendance.inactive-grace-minutes:3}")
     private long inactiveGraceMinutes;
 
+    @Value("${app.timezone:Asia/Kolkata}")
+    private String appTimezone;
+
     @Override
     @Transactional
     public EmployeeAttendanceOverviewDto getEmployeeOverview(String empId, String sessionKey, YearMonth month) {
         closeExpiredSessions();
-        YearMonth targetMonth = month == null ? YearMonth.now() : month;
+        YearMonth targetMonth = month == null ? currentYearMonth() : month;
         return buildOverview(empId, sessionKey, 7, targetMonth);
     }
 
@@ -57,7 +61,7 @@ public class AttendanceServiceImpl implements AttendanceService {
     public EmployeeAttendanceOverviewDto clockIn(String empId, String sessionKey) {
         closeExpiredSessions();
         Employee employee = getEmployee(empId);
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = currentDateTime();
 
         Optional<AttendanceSession> existingSession =
             attendanceSessionRepository.findByEmployeeEmpIdAndSessionKeyAndActiveTrue(empId, sessionKey);
@@ -73,7 +77,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         session.setCloseReason(null);
         attendanceSessionRepository.save(session);
 
-        return buildOverview(empId, sessionKey, 7, YearMonth.now());
+        return buildOverview(empId, sessionKey, 7, currentYearMonth());
     }
 
     @Override
@@ -83,9 +87,9 @@ public class AttendanceServiceImpl implements AttendanceService {
         AttendanceSession session = attendanceSessionRepository
             .findByEmployeeEmpIdAndSessionKeyAndActiveTrue(empId, sessionKey)
             .orElseThrow(() -> new IllegalArgumentException("No active attendance session found."));
-        session.setLastActivityAt(LocalDateTime.now());
+        session.setLastActivityAt(currentDateTime());
         attendanceSessionRepository.save(session);
-        return buildOverview(empId, sessionKey, 7, YearMonth.now());
+        return buildOverview(empId, sessionKey, 7, currentYearMonth());
     }
 
     @Override
@@ -95,8 +99,8 @@ public class AttendanceServiceImpl implements AttendanceService {
         AttendanceSession session = attendanceSessionRepository
             .findByEmployeeEmpIdAndSessionKeyAndActiveTrue(empId, sessionKey)
             .orElseThrow(() -> new IllegalArgumentException("No active attendance session found."));
-        closeSession(session, LocalDateTime.now(), "CLOCK_OUT");
-        return buildOverview(empId, sessionKey, 7, YearMonth.now());
+        closeSession(session, currentDateTime(), "CLOCK_OUT");
+        return buildOverview(empId, sessionKey, 7, currentYearMonth());
     }
 
     @Override
@@ -107,14 +111,14 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
         closeExpiredSessions();
         attendanceSessionRepository.findByEmployeeEmpIdAndSessionKeyAndActiveTrue(empId, sessionKey)
-            .ifPresent(session -> closeSession(session, LocalDateTime.now(), "LOGOUT"));
+            .ifPresent(session -> closeSession(session, currentDateTime(), "LOGOUT"));
     }
 
     @Override
     @Transactional
     public List<AdminAttendanceEmployeeDto> getTodayAttendanceForAdmin() {
         closeExpiredSessions();
-        LocalDate today = LocalDate.now();
+        LocalDate today = currentDate();
         LocalDateTime rangeStart = today.minusDays(7).atStartOfDay();
         List<AttendanceSession> sessions =
             attendanceSessionRepository.findByClockInAtGreaterThanEqualOrderByClockInAtDesc(rangeStart);
@@ -137,7 +141,7 @@ public class AttendanceServiceImpl implements AttendanceService {
             dto.setToday(buildDaySummary(
                 sessionsByEmployee.getOrDefault(employee.getEmpId(), List.of()),
                 today,
-                LocalDateTime.now()
+                currentDateTime()
             ));
             response.add(dto);
         }
@@ -167,13 +171,13 @@ public class AttendanceServiceImpl implements AttendanceService {
             empId,
             sessionKey,
             Math.max(1, Math.min(days, 30)),
-            month == null ? YearMonth.now() : month
+            month == null ? currentYearMonth() : month
         );
     }
 
     @Transactional
     protected void closeExpiredSessions() {
-        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(inactiveGraceMinutes);
+        LocalDateTime cutoff = currentDateTime().minusMinutes(inactiveGraceMinutes);
         List<AttendanceSession> staleSessions =
             attendanceSessionRepository.findByActiveTrueAndLastActivityAtBefore(cutoff);
         for (AttendanceSession session : staleSessions) {
@@ -184,14 +188,14 @@ public class AttendanceServiceImpl implements AttendanceService {
     private EmployeeAttendanceOverviewDto buildOverview(String empId, String sessionKey, int days, YearMonth month) {
         Employee employee = getEmployee(empId);
         LocalDate joinedDate = resolveJoinedDate(employee);
-        LocalDate startDate = LocalDate.now().minusDays(days - 1L);
+        LocalDate startDate = currentDate().minusDays(days - 1L);
         LocalDateTime rangeStart = startDate.minusDays(1).atStartOfDay();
         List<AttendanceSession> sessions =
             attendanceSessionRepository.findByEmployeeEmpIdAndClockInAtGreaterThanEqualOrderByClockInAtDesc(empId, rangeStart);
 
         Map<LocalDate, AttendanceDaySummaryDto> dayMap = new LinkedHashMap<>();
-        LocalDate today = LocalDate.now();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = currentDate();
+        LocalDateTime now = currentDateTime();
 
         for (int offset = 0; offset < days; offset++) {
             LocalDate date = today.minusDays(offset);
@@ -228,8 +232,8 @@ public class AttendanceServiceImpl implements AttendanceService {
             .findByEmployeeEmpIdAndClockInAtGreaterThanEqualOrderByClockInAtDesc(employee.getEmpId(), fetchStart);
         Map<LocalDate, String> holidays = holidayCalendarService.getNationalHolidays(month);
         List<AttendanceCalendarDayDto> calendarDays = new ArrayList<>();
-        LocalDate today = LocalDate.now();
-        LocalDateTime now = LocalDateTime.now();
+        LocalDate today = currentDate();
+        LocalDateTime now = currentDateTime();
 
         for (LocalDate date = monthStart; !date.isAfter(monthEnd); date = date.plusDays(1)) {
             AttendanceDaySummaryDto summary = buildDaySummary(sessions, date, now);
@@ -306,7 +310,7 @@ public class AttendanceServiceImpl implements AttendanceService {
         AttendanceDaySummaryDto dto = new AttendanceDaySummaryDto();
         dto.setDate(date);
         dto.setWorkedMinutes(workedMinutes);
-        dto.setCurrentlyWorking(date.equals(LocalDate.now()) && activeSessions > 0);
+        dto.setCurrentlyWorking(date.equals(currentDate()) && activeSessions > 0);
         dto.setActiveSessions(activeSessions);
         dto.setFirstClockInAt(firstClockIn);
         dto.setLastClockOutAt(lastClockOut);
@@ -397,10 +401,26 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     private LocalDate resolveJoinedDate(Employee employee) {
         if (employee.getCreatedAt() == null) {
-            employee.setCreatedAt(LocalDateTime.now());
+            employee.setCreatedAt(currentDateTime());
             employeeRepository.save(employee);
         }
         return employee.getCreatedAt().toLocalDate();
+    }
+
+    private ZoneId appZone() {
+        return ZoneId.of(appTimezone);
+    }
+
+    private LocalDateTime currentDateTime() {
+        return LocalDateTime.now(appZone());
+    }
+
+    private LocalDate currentDate() {
+        return LocalDate.now(appZone());
+    }
+
+    private YearMonth currentYearMonth() {
+        return YearMonth.now(appZone());
     }
 
     private record TimeRange(LocalDateTime start, LocalDateTime end) {
