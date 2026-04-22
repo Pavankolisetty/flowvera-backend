@@ -119,6 +119,7 @@ public class AuthController {
         response.setRole(employee.getRole().name());
         response.setDesignation(employee.getDesignation());
         response.setToken(jwtUtil.generateToken(employee.getEmpId(), employee.getRole().name()));
+        response.setPasswordResetRequired(Boolean.TRUE.equals(employee.getPasswordResetRequired()));
         return response;
     }
 }

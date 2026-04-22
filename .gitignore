@@ -36,3 +36,4 @@ build/
 uploads/
 .env.local
 .DS_Store
+.m2/

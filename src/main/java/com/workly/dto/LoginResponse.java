@@ -10,4 +10,5 @@ public class LoginResponse {
     private String role;
     private String designation;
     private String token;
+    private Boolean passwordResetRequired;
 }

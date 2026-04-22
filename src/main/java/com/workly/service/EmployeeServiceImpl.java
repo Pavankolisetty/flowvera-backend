@@ -200,6 +200,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         Employee employee = findByEmpId(empId);
         if (employee != null && passwordEncoder.matches(oldPassword, employee.getPassword())) {
             employee.setPassword(passwordEncoder.encode(newPassword));
+            employee.setPasswordResetRequired(false);
             employeeRepo.save(employee);
             return true;
         }
