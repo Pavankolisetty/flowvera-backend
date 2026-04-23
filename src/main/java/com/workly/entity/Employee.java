@@ -36,7 +36,7 @@ public class Employee {
     private String designation; // e.g., "Frontend Developer", "Research Engineer", "Software Developer"
 
     @Column(nullable = false)
-    private Boolean passwordResetRequired = true;
+    private Boolean passwordResetRequired = false;
 
     private LocalDateTime createdAt = LocalDateTime.now();
 
@@ -47,7 +47,7 @@ public class Employee {
             emailVerified = false;
         }
         if (passwordResetRequired == null) {
-            passwordResetRequired = true;
+            passwordResetRequired = false;
         }
         if (createdAt == null) {
             createdAt = LocalDateTime.now();

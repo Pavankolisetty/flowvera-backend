@@ -266,7 +266,7 @@ public class EmployeeServiceImpl implements EmployeeService {
                 hasUpdates = true;
             }
             if (employee.getPasswordResetRequired() == null) {
-                employee.setPasswordResetRequired(true);
+                employee.setPasswordResetRequired(false);
                 hasUpdates = true;
             }
         }
