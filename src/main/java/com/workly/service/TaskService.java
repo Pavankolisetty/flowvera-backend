@@ -3,6 +3,7 @@ package com.workly.service;
 import com.workly.dto.AssignTaskRequest;
 import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
+import com.workly.dto.DueDateExtensionRequest;
 import com.workly.dto.ReassignTaskRequest;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.entity.Task;
@@ -19,6 +20,8 @@ public interface TaskService {
     List<TaskAssignment> getTasksByEmpId(String empId);
     List<TaskAssignment> getAssignmentsCreatedBy(String assignedBy);
     TaskAssignment submitDocument(Long taskAssignmentId, MultipartFile file, String empId) throws Exception;
+    TaskAssignment requestDueDateExtension(DueDateExtensionRequest request, String empId);
+    TaskAssignment approveDueDateExtension(Long taskAssignmentId, String reviewerEmpId);
     TaskAssignment requestSubmissionChanges(ReviewSubmissionRequest request, String reviewerEmpId);
     TaskAssignment acceptSubmission(Long taskAssignmentId, String reviewerEmpId);
     List<TaskAssignment> markEmployeeNotificationsRead(String empId);

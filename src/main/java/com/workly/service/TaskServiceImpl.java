@@ -9,6 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.workly.dto.AssignTaskRequest;
 import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
+import com.workly.dto.DueDateExtensionRequest;
 import com.workly.dto.ReassignTaskRequest;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.entity.Employee;
@@ -244,6 +245,65 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
+    public TaskAssignment requestDueDateExtension(DueDateExtensionRequest request, String empId) {
+        TaskAssignment assignment = assignRepo.findById(request.getTaskAssignmentId()).orElseThrow();
+
+        if (!assignment.getEmployee().getEmpId().equals(empId)) {
+            throw new RuntimeException("You can request an extension only for your own assigned task");
+        }
+
+        if (assignment.getStatus() == TaskStatus.COMPLETED) {
+            throw new RuntimeException("This task is already completed");
+        }
+
+        if (request.getRequestedDueDate() == null) {
+            throw new RuntimeException("Please choose the new due date you need");
+        }
+
+        if (assignment.getDueDate() != null && !request.getRequestedDueDate().isAfter(assignment.getDueDate())) {
+            throw new RuntimeException("Requested due date must be after the current due date");
+        }
+
+        String reason = request.getReason() == null ? "" : request.getReason().trim();
+        if (reason.isBlank()) {
+            throw new RuntimeException("Please provide a reason for the due date extension");
+        }
+
+        assignment.setRequestedDueDate(request.getRequestedDueDate());
+        assignment.setDueDateExtensionReason(reason);
+        assignment.setDueDateExtensionRequestedAt(LocalDateTime.now());
+        assignment.setDueDateExtensionPending(true);
+        assignment.setAdminNotificationMessage(buildDueDateExtensionNotification(assignment));
+        assignment.setAdminNotificationUnread(true);
+
+        TaskAssignment saved = withAssignerDetails(assignRepo.save(assignment));
+        sendDueDateExtensionRequestAcknowledgement(saved);
+        return saved;
+    }
+
+    @Override
+    public TaskAssignment approveDueDateExtension(Long taskAssignmentId, String reviewerEmpId) {
+        TaskAssignment assignment = assignRepo.findById(taskAssignmentId).orElseThrow();
+        validateReviewerAccess(assignment, reviewerEmpId);
+
+        if (!Boolean.TRUE.equals(assignment.getDueDateExtensionPending()) || assignment.getRequestedDueDate() == null) {
+            throw new RuntimeException("No pending due date extension request is available");
+        }
+
+        assignment.setDueDate(assignment.getRequestedDueDate());
+        assignment.setRequestedDueDate(null);
+        assignment.setDueDateExtensionPending(false);
+        assignment.setAdminNotificationMessage(null);
+        assignment.setAdminNotificationUnread(false);
+        assignment.setEmployeeNotificationMessage("Your due date extension request was approved. The task due date has been updated.");
+        assignment.setEmployeeNotificationUnread(true);
+
+        TaskAssignment saved = withAssignerDetails(assignRepo.save(assignment));
+        sendDueDateExtensionApprovedAcknowledgement(saved, reviewerEmpId);
+        return saved;
+    }
+
+    @Override
     public TaskAssignment requestSubmissionChanges(ReviewSubmissionRequest request, String reviewerEmpId) {
         TaskAssignment assignment = assignRepo.findById(request.getTaskAssignmentId()).orElseThrow();
         String comments = request.getComments() == null ? "" : request.getComments().trim();
@@ -384,6 +444,14 @@ public class TaskServiceImpl implements TaskService {
         return "Review update for \"" + taskTitle + "\": " + comments;
     }
 
+    private String buildDueDateExtensionNotification(TaskAssignment assignment) {
+        String employeeName = assignment.getEmployee() != null && assignment.getEmployee().getName() != null
+            ? assignment.getEmployee().getName()
+            : "The employee";
+        return employeeName + " requested a due date extension for \"" + taskTitle(assignment)
+            + "\" to " + formatDueDate(assignment.getRequestedDueDate()) + ".";
+    }
+
     private void validateReviewerAccess(TaskAssignment assignment, String reviewerEmpId) {
         if (reviewerEmpId == null || reviewerEmpId.isBlank()) {
             throw new RuntimeException("Reviewer identity is missing");
@@ -420,6 +488,9 @@ public class TaskServiceImpl implements TaskService {
 
     private void sendAssignmentAcknowledgement(TaskAssignment assignment, Employee assigner) {
         Employee recipient = assignment.getEmployee();
+        if (isAdminActor(assigner)) {
+            return;
+        }
         if (!isEmployeeRecipient(recipient)) {
             return;
         }
@@ -473,11 +544,14 @@ public class TaskServiceImpl implements TaskService {
 
     private void sendChangesRequestedAcknowledgement(TaskAssignment assignment, String reviewerEmpId, String comments) {
         Employee recipient = assignment.getEmployee();
+        Employee reviewer = empRepo.findByEmpId(reviewerEmpId).orElse(null);
+        if (isAdminActor(reviewer)) {
+            return;
+        }
         if (!isEmployeeRecipient(recipient)) {
             return;
         }
 
-        Employee reviewer = empRepo.findByEmpId(reviewerEmpId).orElse(null);
         String safeComments = comments == null || comments.isBlank() ? "Please review the task and update your submission." : comments;
         String actionUrl = employeeAssignedTaskUrl(assignment);
         String html = """
@@ -497,11 +571,14 @@ public class TaskServiceImpl implements TaskService {
 
     private void sendAcceptanceAcknowledgement(TaskAssignment assignment, String reviewerEmpId) {
         Employee recipient = assignment.getEmployee();
+        Employee reviewer = empRepo.findByEmpId(reviewerEmpId).orElse(null);
+        if (isAdminActor(reviewer)) {
+            return;
+        }
         if (!isEmployeeRecipient(recipient)) {
             return;
         }
 
-        Employee reviewer = empRepo.findByEmpId(reviewerEmpId).orElse(null);
         String actionUrl = employeeAssignedTaskUrl(assignment);
         String html = """
                 <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.6;background:#f3f4f6;padding:24px;">
@@ -515,6 +592,64 @@ public class TaskServiceImpl implements TaskService {
                 </div>
                 """.formatted(displayName(recipient, "Team member"), displayName(reviewer, "A reviewer"), taskTitle(assignment), actionUrl);
         sendMailSafely(recipient, "Task accepted: " + taskTitle(assignment), html, "task acceptance acknowledgement");
+    }
+
+    private void sendDueDateExtensionRequestAcknowledgement(TaskAssignment assignment) {
+        Employee requester = assignment.getEmployee();
+        Employee reviewer = findReviewer(assignment);
+        if (!isEmployeeRecipient(reviewer)) {
+            return;
+        }
+
+        String actionUrl = employeeReviewTaskUrl(assignment);
+        String html = """
+                <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.6;background:#f3f4f6;padding:24px;">
+                  <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
+                    <p style="margin:0 0 12px;">Dear %s,</p>
+                    <p style="margin:0 0 12px;"><strong>%s</strong> requested a due date extension for <strong>%s</strong>.</p>
+                    <p style="margin:0 0 12px;"><strong>Current due date:</strong> %s</p>
+                    <p style="margin:0 0 12px;"><strong>Requested due date:</strong> %s</p>
+                    <p style="margin:0 0 16px;"><strong>Reason:</strong> %s</p>
+                    <p style="margin:0 0 20px;"><a href="%s" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;">Review Extension Request</a></p>
+                    <p style="margin:16px 0 0;"><strong>Regards,</strong><br/><strong>Flowvera</strong></p>
+                  </div>
+                </div>
+                """.formatted(
+                    displayName(reviewer, "Team member"),
+                    displayName(requester, "A team member"),
+                    taskTitle(assignment),
+                    formatDueDate(assignment.getDueDate()),
+                    formatDueDate(assignment.getRequestedDueDate()),
+                    escapeHtml(assignment.getDueDateExtensionReason()),
+                    actionUrl);
+        sendMailSafely(reviewer, "Due date extension requested: " + taskTitle(assignment), html, "due date extension request acknowledgement");
+    }
+
+    private void sendDueDateExtensionApprovedAcknowledgement(TaskAssignment assignment, String reviewerEmpId) {
+        Employee recipient = assignment.getEmployee();
+        Employee reviewer = empRepo.findByEmpId(reviewerEmpId).orElse(null);
+        if (isAdminActor(reviewer) || !isEmployeeRecipient(recipient)) {
+            return;
+        }
+
+        String actionUrl = employeeAssignedTaskUrl(assignment);
+        String html = """
+                <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.6;background:#f3f4f6;padding:24px;">
+                  <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
+                    <p style="margin:0 0 12px;">Dear %s,</p>
+                    <p style="margin:0 0 12px;"><strong>%s</strong> approved your due date extension for <strong>%s</strong>.</p>
+                    <p style="margin:0 0 16px;"><strong>New due date:</strong> %s</p>
+                    <p style="margin:0 0 20px;"><a href="%s" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;">View Updated Task</a></p>
+                    <p style="margin:16px 0 0;"><strong>Regards,</strong><br/><strong>Flowvera</strong></p>
+                  </div>
+                </div>
+                """.formatted(
+                    displayName(recipient, "Team member"),
+                    displayName(reviewer, "A reviewer"),
+                    taskTitle(assignment),
+                    formatDueDate(assignment.getDueDate()),
+                    actionUrl);
+        sendMailSafely(recipient, "Due date extension approved: " + taskTitle(assignment), html, "due date extension approval acknowledgement");
     }
 
     private void sendMailSafely(Employee recipient, String subject, String html, String context) {
@@ -540,6 +675,10 @@ public class TaskServiceImpl implements TaskService {
                 && employee.getRole() != Role.ADMIN
                 && employee.getEmail() != null
                 && !employee.getEmail().isBlank();
+    }
+
+    private boolean isAdminActor(Employee employee) {
+        return employee != null && employee.getRole() == Role.ADMIN;
     }
 
     private String displayName(Employee employee, String fallback) {

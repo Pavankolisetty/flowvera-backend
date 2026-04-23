@@ -191,6 +191,19 @@ public class AdminController {
         return ResponseEntity.ok(taskService.markReviewerNotificationsRead(auth.getName()));
     }
 
+    @PostMapping("/due-date-extension/approve/{assignmentId}")
+    public ResponseEntity<?> approveDueDateExtension(@PathVariable Long assignmentId, Authentication auth) {
+        try {
+            TaskAssignment assignment = taskService.approveDueDateExtension(assignmentId, auth.getName());
+            return ResponseEntity.ok(new TaskActionResponse(
+                assignment,
+                "Due date extension approved successfully."
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
     @GetMapping("/tasks")
     public ResponseEntity<List<Task>> getAllTasks() {
         return ResponseEntity.ok(taskRepo.findAll());

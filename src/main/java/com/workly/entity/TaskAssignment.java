@@ -38,6 +38,15 @@ public class TaskAssignment {
 
     private LocalDate dueDate;
 
+    private LocalDate requestedDueDate;
+
+    @Column(length = 1000)
+    private String dueDateExtensionReason;
+
+    private LocalDateTime dueDateExtensionRequestedAt;
+
+    private Boolean dueDateExtensionPending = false;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 50)
     private TaskStatus status = TaskStatus.PENDING;

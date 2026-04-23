@@ -4,6 +4,7 @@ import com.workly.dto.AssignTaskRequest;
 import com.workly.dto.AttendanceActionRequest;
 import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
+import com.workly.dto.DueDateExtensionRequest;
 import com.workly.dto.EmployeeAttendanceOverviewDto;
 import com.workly.dto.EmployeeProfileResponse;
 import com.workly.dto.ErrorResponse;
@@ -222,6 +223,32 @@ public class EmployeeController {
             return ResponseEntity.ok(new TaskActionResponse(
                 assignment,
                 "Improvement notes shared with the assignee successfully."
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/due-date-extension/request")
+    public ResponseEntity<?> requestDueDateExtension(@RequestBody DueDateExtensionRequest request, Authentication auth) {
+        try {
+            TaskAssignment assignment = taskService.requestDueDateExtension(request, auth.getName());
+            return ResponseEntity.ok(new TaskActionResponse(
+                assignment,
+                "Due date extension request sent successfully."
+            ));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/delegated/due-date-extension/approve/{assignmentId}")
+    public ResponseEntity<?> approveDelegatedDueDateExtension(@PathVariable Long assignmentId, Authentication auth) {
+        try {
+            TaskAssignment assignment = taskService.approveDueDateExtension(assignmentId, auth.getName());
+            return ResponseEntity.ok(new TaskActionResponse(
+                assignment,
+                "Due date extension approved successfully."
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
