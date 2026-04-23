@@ -157,7 +157,7 @@ public class AdminController {
 
     @GetMapping("/all-assignments")
     public ResponseEntity<List<TaskAssignment>> getAllTaskAssignments() {
-        return ResponseEntity.ok(assignmentRepo.findAllByOrderByAssignedAtDesc());
+        return ResponseEntity.ok(taskService.getAllAssignments());
     }
 
     @PostMapping("/submission/request-changes")

@@ -15,6 +15,7 @@ public interface TaskService {
     Task createTaskWithFile(CreateTaskWithFileRequest request, String createdBy) throws Exception;
     TaskAssignment assignTask(AssignTaskRequest request, String assignedBy);
     TaskAssignment reassignTask(ReassignTaskRequest request, String adminEmpId);
+    List<TaskAssignment> getAllAssignments();
     List<TaskAssignment> getTasksByEmpId(String empId);
     List<TaskAssignment> getAssignmentsCreatedBy(String assignedBy);
     TaskAssignment submitDocument(Long taskAssignmentId, MultipartFile file, String empId) throws Exception;

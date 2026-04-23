@@ -28,6 +28,12 @@ public class TaskAssignment {
 
     private String assignedBy; // empId of who assigned
 
+    @Transient
+    private String assignedByName;
+
+    @Transient
+    private String assignedByRole;
+
     private LocalDateTime assignedAt = LocalDateTime.now(); // When task was assigned
 
     private LocalDate dueDate;
