@@ -12,6 +12,7 @@ import com.workly.dto.StartRegistrationRequest;
 import com.workly.dto.VerifyPasswordResetOtpRequest;
 import com.workly.dto.VerifyPhoneOtpRequest;
 import com.workly.entity.Employee;
+import com.workly.entity.Role;
 import com.workly.security.JwtUtil;
 import com.workly.service.AttendanceService;
 import com.workly.service.EmployeeService;
@@ -57,6 +58,8 @@ public class AuthController {
             return ResponseEntity.ok(registrationService.startRegistration(request));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(500).body(new ErrorResponse(e.getMessage()));
         }
     }
 
@@ -66,6 +69,8 @@ public class AuthController {
             return ResponseEntity.ok(registrationService.resendEmailVerification(request));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.status(500).body(new ErrorResponse(e.getMessage()));
         }
     }
 
@@ -195,6 +200,9 @@ public class AuthController {
     }
 
     private ResponseEntity<?> validateLoginEligibility(Employee employee) {
+        if (employee.getRole() == Role.ADMIN) {
+            return null;
+        }
         if (!Boolean.TRUE.equals(employee.getEmailVerified())) {
             return ResponseEntity.badRequest().body("Email verification is still pending.");
         }
