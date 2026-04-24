@@ -108,9 +108,29 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (!departmentDirectory.isValidRole(department, designation)) {
             throw new IllegalArgumentException("Please select a valid role for the chosen department.");
         }
-        String approvedEmpId = generateApprovedEmpId(department);
         String temporaryPassword = generateTemporaryPassword();
+        boolean usesTemporaryPendingId = pendingEmployee.getEmpId() != null
+            && pendingEmployee.getEmpId().startsWith("PENDING-");
 
+        if (!usesTemporaryPendingId) {
+            // Legacy pending users may already be referenced by attendance or task records.
+            pendingEmployee.setEmailVerified(true);
+            pendingEmployee.setPhoneVerified(true);
+            pendingEmployee.setIsApproved(true);
+            pendingEmployee.setCanAssignTask(Boolean.TRUE.equals(request.getCanAssignTask()));
+            pendingEmployee.setPassword(passwordEncoder.encode(temporaryPassword));
+            pendingEmployee.setPasswordResetRequired(true);
+            pendingEmployee.setPhoneCountryCode(resolvePhoneCountryCode(pendingEmployee.getPhone()));
+            pendingEmployee.setDepartment(department);
+            pendingEmployee.setDesignation(designation);
+            pendingEmployee.setRole(Role.USER);
+
+            Employee approvedEmployee = employeeRepo.save(pendingEmployee);
+            sendApprovalEmail(approvedEmployee, temporaryPassword);
+            return approvedEmployee;
+        }
+
+        String approvedEmpId = generateApprovedEmpId(department);
         Employee approvedEmployee = new Employee();
         approvedEmployee.setEmpId(approvedEmpId);
         approvedEmployee.setName(pendingEmployee.getName());
