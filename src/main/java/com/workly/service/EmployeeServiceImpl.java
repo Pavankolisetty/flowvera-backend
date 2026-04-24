@@ -108,10 +108,6 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (!departmentDirectory.isValidRole(department, designation)) {
             throw new IllegalArgumentException("Please select a valid role for the chosen department.");
         }
-        if (request.getCanAssignTask() == null) {
-            throw new IllegalArgumentException("Please choose whether this user can assign tasks.");
-        }
-
         String approvedEmpId = generateApprovedEmpId(department);
         String temporaryPassword = generateTemporaryPassword();
 
@@ -132,8 +128,9 @@ public class EmployeeServiceImpl implements EmployeeService {
         approvedEmployee.setRole(Role.USER);
         approvedEmployee.setCreatedAt(pendingEmployee.getCreatedAt());
 
-        employeeRepo.save(approvedEmployee);
         employeeRepo.delete(pendingEmployee);
+        employeeRepo.flush();
+        employeeRepo.save(approvedEmployee);
         sendApprovalEmail(approvedEmployee, temporaryPassword);
         return approvedEmployee;
     }
