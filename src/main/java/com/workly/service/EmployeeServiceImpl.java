@@ -1,25 +1,28 @@
 package com.workly.service;
 
-import java.util.List;
 import com.google.i18n.phonenumbers.NumberParseException;
 import com.google.i18n.phonenumbers.PhoneNumberUtil;
 import com.google.i18n.phonenumbers.Phonenumber;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import com.workly.dto.ApproveUserRequest;
 import com.workly.dto.CreateUserRequest;
 import com.workly.dto.EmployeeProfileResponse;
 import com.workly.dto.UpdateProfileRequest;
 import com.workly.entity.Employee;
-import com.workly.entity.TaskProgressHistory;
 import com.workly.entity.Role;
 import com.workly.entity.TaskAssignment;
+import com.workly.entity.TaskProgressHistory;
 import com.workly.entity.TaskStatus;
 import com.workly.repo.EmployeeRepository;
-import com.workly.repo.TaskProgressHistoryRepository;
 import com.workly.repo.TaskAssignmentRepository;
+import com.workly.repo.TaskProgressHistoryRepository;
+import java.security.SecureRandom;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
@@ -27,75 +30,129 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     private final TaskAssignmentRepository taskAssignmentRepo;
     private final EmployeeRepository employeeRepo;
-    private final EmailVerificationService emailVerificationService;
     private final TaskProgressHistoryRepository taskProgressHistoryRepo;
-    
+    private final DepartmentDirectory departmentDirectory;
+    private final MailDeliveryService mailDeliveryService;
+
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-
     @Override
-    public Employee createEmployee(CreateUserRequest request) {
-        // Validate email domain
+    public Employee createPendingEmployee(CreateUserRequest request) {
         validateEmailDomain(request.getEmail());
 
-        // Require email verification token
-        if (request.getVerificationToken() == null || request.getVerificationToken().isBlank()) {
-            throw new IllegalArgumentException("Email must be verified before creating a user.");
+        String normalizedEmail = request.getEmail() == null ? "" : request.getEmail().trim().toLowerCase();
+        if (normalizedEmail.isBlank()) {
+            throw new IllegalArgumentException("Email is required.");
         }
-        
-        // Check if email already exists
-        if (employeeRepo.existsByEmailIgnoreCase(request.getEmail())) {
+        if (employeeRepo.existsByEmailIgnoreCase(normalizedEmail)) {
             Employee existingEmployee = employeeRepo
-                .findFirstByEmailIgnoreCaseOrderByCreatedAtDesc(request.getEmail())
+                .findFirstByEmailIgnoreCaseOrderByCreatedAtDesc(normalizedEmail)
                 .orElse(null);
             if (existingEmployee != null) {
-            throw new IllegalArgumentException("Email already exists. User '" + existingEmployee.getName() + "' (ID: " + existingEmployee.getEmpId() + ") is already registered with this email.");
+                throw new IllegalArgumentException("Email already exists. User '" + existingEmployee.getName() + "' (ID: " + existingEmployee.getEmpId() + ") is already registered with this email.");
             }
             throw new IllegalArgumentException("Email already exists.");
         }
-        
-        // Check if phone number already exists
-        String normalizedPhone = normalizeAndValidatePhone(request.getPhoneCountryCode(), request.getPhone());
-        if (employeeRepo.findByPhone(normalizedPhone).isPresent()) {
-            Employee existingEmployee = employeeRepo.findByPhone(normalizedPhone).get();
-            throw new IllegalArgumentException("Phone number already exists. User '" + existingEmployee.getName() + "' (ID: " + existingEmployee.getEmpId() + ") is already registered with this phone number.");
+
+        String normalizedPhone = normalizePhone(request.getPhone());
+        Employee existingPhoneEmployee = employeeRepo.findByPhone(normalizedPhone).orElse(null);
+        if (existingPhoneEmployee != null) {
+            throw new IllegalArgumentException("Phone number already exists. User '" + existingPhoneEmployee.getName() + "' (ID: " + existingPhoneEmployee.getEmpId() + ") is already registered with this phone number.");
         }
 
-        String nextEmpId = generateNextEmpId();
-        String tempPasswordHash = emailVerificationService.consumeVerifiedPasswordHash(request.getEmail(), request.getVerificationToken());
-        
+        if (request.getName() == null || request.getName().trim().isBlank()) {
+            throw new IllegalArgumentException("Name is required.");
+        }
+
         Employee employee = new Employee();
-        employee.setEmpId(nextEmpId);
-        employee.setName(request.getName());
-        employee.setEmail(request.getEmail());
+        employee.setEmpId(generatePendingEmpId());
+        employee.setName(request.getName().trim());
+        employee.setEmail(normalizedEmail);
         employee.setEmailVerified(true);
-        employee.setPassword(tempPasswordHash);
+        employee.setPhoneVerified(true);
+        employee.setIsApproved(false);
+        employee.setCanAssignTask(false);
+        employee.setPassword(passwordEncoder.encode(generateTemporaryPassword()));
         employee.setPasswordResetRequired(true);
         employee.setPhone(normalizedPhone);
-        employee.setPhoneCountryCode(request.getPhoneCountryCode());
-        employee.setDesignation(request.getDesignation());
-        // Always set role to USER - only admin can create new users and they shouldn't create other admins
+        employee.setPhoneCountryCode(resolvePhoneCountryCode(normalizedPhone));
         employee.setRole(Role.USER);
-        
         return employeeRepo.save(employee);
     }
-    
+
+    @Override
+    public List<Employee> getPendingEmployees() {
+        return employeeRepo.findByIsApprovedFalseAndRole(Role.USER);
+    }
+
+    @Override
+    @Transactional
+    public Employee approvePendingUser(String pendingEmpId, ApproveUserRequest request) {
+        Employee pendingEmployee = employeeRepo.findByEmpId(pendingEmpId)
+            .orElseThrow(() -> new IllegalArgumentException("Pending user not found."));
+
+        if (pendingEmployee.getRole() == Role.ADMIN) {
+            throw new IllegalArgumentException("Admin accounts cannot be approved through this flow.");
+        }
+        if (Boolean.TRUE.equals(pendingEmployee.getIsApproved())) {
+            throw new IllegalArgumentException("User is already approved.");
+        }
+
+        String department = departmentDirectory.normalizeDepartment(request.getDepartment());
+        String designation = departmentDirectory.normalizeDesignation(request.getDesignation());
+
+        if (!departmentDirectory.isValidDepartment(department)) {
+            throw new IllegalArgumentException("Please select a valid department.");
+        }
+        if (!departmentDirectory.isValidRole(department, designation)) {
+            throw new IllegalArgumentException("Please select a valid role for the chosen department.");
+        }
+        if (request.getCanAssignTask() == null) {
+            throw new IllegalArgumentException("Please choose whether this user can assign tasks.");
+        }
+
+        String approvedEmpId = generateApprovedEmpId(department);
+        String temporaryPassword = generateTemporaryPassword();
+
+        Employee approvedEmployee = new Employee();
+        approvedEmployee.setEmpId(approvedEmpId);
+        approvedEmployee.setName(pendingEmployee.getName());
+        approvedEmployee.setEmail(pendingEmployee.getEmail());
+        approvedEmployee.setEmailVerified(true);
+        approvedEmployee.setPhoneVerified(true);
+        approvedEmployee.setIsApproved(true);
+        approvedEmployee.setCanAssignTask(Boolean.TRUE.equals(request.getCanAssignTask()));
+        approvedEmployee.setPassword(passwordEncoder.encode(temporaryPassword));
+        approvedEmployee.setPasswordResetRequired(true);
+        approvedEmployee.setPhone(pendingEmployee.getPhone());
+        approvedEmployee.setPhoneCountryCode(resolvePhoneCountryCode(pendingEmployee.getPhone()));
+        approvedEmployee.setDepartment(department);
+        approvedEmployee.setDesignation(designation);
+        approvedEmployee.setRole(Role.USER);
+        approvedEmployee.setCreatedAt(pendingEmployee.getCreatedAt());
+
+        employeeRepo.save(approvedEmployee);
+        employeeRepo.delete(pendingEmployee);
+        sendApprovalEmail(approvedEmployee, temporaryPassword);
+        return approvedEmployee;
+    }
+
     private void validateEmailDomain(String email) {
         String[] allowedDomains = {"gmail.com", "outlook.com", "yahoo.com", "zoho.com"};
-        
+
         if (email == null || !email.contains("@")) {
             throw new IllegalArgumentException("Invalid email format.");
         }
-        
+
         String domain = email.substring(email.indexOf("@") + 1).toLowerCase();
-        
+
         for (String allowedDomain : allowedDomains) {
             if (domain.equals(allowedDomain)) {
                 return;
             }
         }
-        
+
         throw new IllegalArgumentException("Email domain not allowed. Please use Gmail, Outlook, Yahoo, or Zoho.");
     }
 
@@ -131,6 +188,29 @@ public class EmployeeServiceImpl implements EmployeeService {
                 }
             }
 
+            return phoneUtil.format(parsed, PhoneNumberUtil.PhoneNumberFormat.E164);
+        } catch (NumberParseException ex) {
+            throw new IllegalArgumentException("Invalid phone number format.");
+        }
+    }
+
+    private String normalizePhone(String phone) {
+        if (phone == null || phone.isBlank()) {
+            throw new IllegalArgumentException("Phone number is required.");
+        }
+
+        PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
+        try {
+            Phonenumber.PhoneNumber parsed = phoneUtil.parse(phone.trim(), null);
+            if (!phoneUtil.isValidNumber(parsed)) {
+                throw new IllegalArgumentException("Invalid phone number.");
+            }
+            if (parsed.getCountryCode() == 91) {
+                String national = String.valueOf(parsed.getNationalNumber());
+                if (!national.matches("[6-9]\\d{9}")) {
+                    throw new IllegalArgumentException("India phone numbers must be 10 digits and start with 6-9.");
+                }
+            }
             return phoneUtil.format(parsed, PhoneNumberUtil.PhoneNumberFormat.E164);
         } catch (NumberParseException ex) {
             throw new IllegalArgumentException("Invalid phone number format.");
@@ -229,8 +309,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (ta.getStatus() == TaskStatus.COMPLETED) {
             throw new RuntimeException("This task has already been completed");
         }
-        
-        // If trying to complete task (100%) and submission is required, check if document is submitted
+
         if (progress == 100 && ta.getRequiresSubmission() && ta.getSubmissionDocPath() == null) {
             throw new RuntimeException("Document submission is required to complete this task");
         }
@@ -238,7 +317,7 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (Boolean.TRUE.equals(ta.getRequiresSubmission()) && progress == 100) {
             throw new RuntimeException("This task will be completed only after the reviewer accepts the submitted document");
         }
-        
+
         ta.setProgress(progress);
         if (progress >= 100 && !Boolean.TRUE.equals(ta.getRequiresSubmission())) {
             ta.setStatus(TaskStatus.COMPLETED);
@@ -265,6 +344,18 @@ public class EmployeeServiceImpl implements EmployeeService {
                 employee.setEmailVerified(false);
                 hasUpdates = true;
             }
+            if (employee.getPhoneVerified() == null) {
+                employee.setPhoneVerified(employee.getRole() == Role.ADMIN);
+                hasUpdates = true;
+            }
+            if (employee.getIsApproved() == null) {
+                employee.setIsApproved(employee.getRole() == Role.ADMIN);
+                hasUpdates = true;
+            }
+            if (employee.getCanAssignTask() == null) {
+                employee.setCanAssignTask(employee.getRole() == Role.ADMIN);
+                hasUpdates = true;
+            }
             if (employee.getPasswordResetRequired() == null) {
                 employee.setPasswordResetRequired(false);
                 hasUpdates = true;
@@ -278,13 +369,33 @@ public class EmployeeServiceImpl implements EmployeeService {
         return employees;
     }
 
-    private String generateNextEmpId() {
-        String maxEmpId = employeeRepo.findMaxEmpId();
-        if (maxEmpId == null) {
-            return "0001";
+    private String generatePendingEmpId() {
+        return "PENDING-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+
+    private String generateApprovedEmpId(String department) {
+        String departmentCode = departmentDirectory.getDepartmentCode(department);
+        int nextSequence = employeeRepo.findByRole(Role.USER).stream()
+            .map(Employee::getEmpId)
+            .filter(id -> id != null && id.matches("[A-Z]{2}\\d{3,}"))
+            .map(id -> id.substring(2))
+            .mapToInt(Integer::parseInt)
+            .max()
+            .orElse(0) + 1;
+        return departmentCode + String.format("%03d", nextSequence);
+    }
+
+    private String resolvePhoneCountryCode(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return null;
         }
-        int nextId = Integer.parseInt(maxEmpId) + 1;
-        return String.format("%04d", nextId);
+        try {
+            PhoneNumberUtil phoneUtil = PhoneNumberUtil.getInstance();
+            Phonenumber.PhoneNumber parsed = phoneUtil.parse(phone, null);
+            return "+" + parsed.getCountryCode();
+        } catch (NumberParseException ex) {
+            return null;
+        }
     }
 
     private String normalizeProfilePhone(Employee employee, String phone) {
@@ -326,7 +437,9 @@ public class EmployeeServiceImpl implements EmployeeService {
         response.setEmail(employee.getEmail());
         response.setRole(employee.getRole().name());
         response.setPhone(employee.getPhone());
+        response.setDepartment(employee.getDepartment());
         response.setDesignation(employee.getDesignation());
+        response.setCanAssignTask(Boolean.TRUE.equals(employee.getCanAssignTask()));
         response.setCreatedAt(employee.getCreatedAt());
         response.setTotalTasksAssigned(totalAssigned);
         response.setTotalTasksCompleted(totalCompleted);
@@ -365,5 +478,32 @@ public class EmployeeServiceImpl implements EmployeeService {
         history.setRecordedAt(java.time.LocalDateTime.now());
         history.setSource(source);
         taskProgressHistoryRepo.save(history);
+    }
+
+    private String generateTemporaryPassword() {
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+        StringBuilder builder = new StringBuilder(12);
+        SecureRandom random = new SecureRandom();
+        for (int i = 0; i < 12; i++) {
+            builder.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return builder.toString();
+    }
+
+    private void sendApprovalEmail(Employee employee, String temporaryPassword) {
+        String html = """
+            <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.6;background:#f3f4f6;padding:24px;">
+              <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
+                <p style="margin:0 0 12px;">Dear %s,</p>
+                <p style="margin:0 0 12px;">Your Flowvera registration has been approved by the admin team.</p>
+                <p style="margin:0 0 12px;"><strong>Employee ID:</strong> %s</p>
+                <p style="margin:0 0 12px;"><strong>Department:</strong> %s</p>
+                <p style="margin:0 0 12px;"><strong>Role:</strong> %s</p>
+                <p style="margin:0 0 16px;"><strong>Temporary Password:</strong> %s</p>
+                <p style="margin:0;">Please sign in and change your password on first login.</p>
+              </div>
+            </div>
+            """.formatted(employee.getName(), employee.getEmpId(), employee.getDepartment(), employee.getDesignation(), temporaryPassword);
+        mailDeliveryService.sendHtmlEmail(employee.getEmail(), "Your Flowvera account is approved", html);
     }
 }

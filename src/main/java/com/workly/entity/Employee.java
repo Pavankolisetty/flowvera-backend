@@ -22,6 +22,15 @@ public class Employee {
     @Column(nullable = false)
     private Boolean emailVerified = false;
 
+    @Column(nullable = false)
+    private Boolean phoneVerified = false;
+
+    @Column(nullable = false)
+    private Boolean isApproved = false;
+
+    @Column(nullable = false)
+    private Boolean canAssignTask = false;
+
     @JsonIgnore
     private String password;
 
@@ -32,6 +41,8 @@ public class Employee {
     private String phone;
 
     private String phoneCountryCode;
+
+    private String department;
 
     private String designation; // e.g., "Frontend Developer", "Research Engineer", "Software Developer"
 
@@ -45,6 +56,15 @@ public class Employee {
     public void applyDefaults() {
         if (emailVerified == null) {
             emailVerified = false;
+        }
+        if (phoneVerified == null) {
+            phoneVerified = false;
+        }
+        if (isApproved == null) {
+            isApproved = false;
+        }
+        if (canAssignTask == null) {
+            canAssignTask = false;
         }
         if (passwordResetRequired == null) {
             passwordResetRequired = false;

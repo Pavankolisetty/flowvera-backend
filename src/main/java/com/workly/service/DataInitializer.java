@@ -22,18 +22,23 @@ public class DataInitializer implements CommandLineRunner {
         // Create default admin if no employees exist
         if (employeeRepository.count() == 0) {
             Employee admin = new Employee();
-            admin.setEmpId("0001");
+            admin.setEmpId("ADM001");
             admin.setName("Admin User");
             admin.setEmail("admin@flowvera.com");
             admin.setPassword(passwordEncoder.encode("admin123"));
             admin.setPhone("+911234567890");
             admin.setPhoneCountryCode("+91");
             admin.setEmailVerified(true);
+            admin.setPhoneVerified(true);
+            admin.setIsApproved(true);
+            admin.setCanAssignTask(true);
             admin.setPasswordResetRequired(false);
+            admin.setDepartment("Administration");
+            admin.setDesignation("Administrator");
             admin.setRole(Role.ADMIN);
             
             employeeRepository.save(admin);
-            System.out.println("Default admin created - EmpId: 0001, Password: admin123");
+            System.out.println("Default admin created - EmpId: ADM001, Password: admin123");
         }
     }
 }

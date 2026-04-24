@@ -8,6 +8,7 @@ import java.util.Optional;
 
 public interface EmailVerificationRepository extends JpaRepository<EmailVerification, Long> {
     Optional<EmailVerification> findTopByEmailIgnoreCaseOrderByCreatedAtDesc(String email);
+    Optional<EmailVerification> findTopByVerificationTokenOrderByCreatedAtDesc(String verificationToken);
     void deleteByEmailIgnoreCase(String email);
-    void deleteByExpiresAtBefore(LocalDateTime time);
+    void deleteByEmailTokenExpiresAtBeforeAndEmailVerifiedFalse(LocalDateTime time);
 }

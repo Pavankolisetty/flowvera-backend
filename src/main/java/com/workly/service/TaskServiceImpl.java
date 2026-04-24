@@ -48,6 +48,7 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     public Task createTask(CreateTaskRequest request, String createdBy) {
+        assertCanAssignTasks(createdBy);
         Task task = new Task();
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
@@ -58,6 +59,7 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     public Task createTaskWithFile(CreateTaskWithFileRequest request, String createdBy) throws Exception {
+        assertCanAssignTasks(createdBy);
         Task task = new Task();
         task.setTitle(request.getTitle());
         task.setDescription(request.getDescription());
@@ -79,6 +81,7 @@ public class TaskServiceImpl implements TaskService {
         Task task = taskRepo.findById(request.getTaskId()).orElseThrow();
         Employee emp = empRepo.findByEmpId(request.getEmpId()).orElseThrow();
         Employee assigner = empRepo.findByEmpId(assignedBy).orElseThrow();
+        assertCanAssignTasks(assigner);
 
         if (assignedBy.equals(emp.getEmpId())) {
             throw new RuntimeException("You cannot assign a task to yourself");
@@ -86,6 +89,9 @@ public class TaskServiceImpl implements TaskService {
 
         if (emp.getRole() == Role.ADMIN) {
             throw new RuntimeException("Tasks can only be assigned to employee accounts");
+        }
+        if (!Boolean.TRUE.equals(emp.getIsApproved())) {
+            throw new RuntimeException("Tasks can only be assigned to approved users");
         }
 
         if (assigner.getRole() != Role.ADMIN && request.getDueDate() == null) {
@@ -139,6 +145,8 @@ public class TaskServiceImpl implements TaskService {
     public TaskAssignment reassignTask(ReassignTaskRequest request, String adminEmpId) {
         TaskAssignment currentAssignment = assignRepo.findById(request.getTaskAssignmentId()).orElseThrow();
         Employee newEmployee = empRepo.findByEmpId(request.getNewEmpId()).orElseThrow();
+        Employee assigner = empRepo.findByEmpId(adminEmpId).orElseThrow();
+        assertCanAssignTasks(assigner);
 
         // Update the assignment to new employee
         currentAssignment.setEmployee(newEmployee);
@@ -180,7 +188,6 @@ public class TaskServiceImpl implements TaskService {
 
         TaskAssignment saved = withAssignerDetails(assignRepo.save(currentAssignment));
         recordProgressHistory(saved, 0, TaskStatus.ASSIGNED, saved.getAssignedAt(), "REASSIGNED");
-        Employee assigner = empRepo.findByEmpId(adminEmpId).orElse(null);
         sendAssignmentAcknowledgement(saved, assigner);
         return saved;
     }
@@ -730,5 +737,19 @@ public class TaskServiceImpl implements TaskService {
                 .replace("\"", "&quot;")
                 .replace("'", "&#39;")
                 .replace("\n", "<br/>");
+    }
+
+    private void assertCanAssignTasks(String assignedBy) {
+        Employee assigner = empRepo.findByEmpId(assignedBy).orElseThrow();
+        assertCanAssignTasks(assigner);
+    }
+
+    private void assertCanAssignTasks(Employee assigner) {
+        if (assigner.getRole() == Role.ADMIN) {
+            return;
+        }
+        if (!Boolean.TRUE.equals(assigner.getIsApproved()) || !Boolean.TRUE.equals(assigner.getCanAssignTask())) {
+            throw new RuntimeException("You are not allowed to assign tasks.");
+        }
     }
 }

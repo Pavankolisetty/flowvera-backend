@@ -3,8 +3,7 @@ package com.workly.dto;
 import lombok.Data;
 
 @Data
-public class CreateUserRequest {
-    private String name;
+public class SendPhoneOtpRequest {
     private String email;
     private String phone;
 }

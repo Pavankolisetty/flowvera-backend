@@ -8,7 +8,9 @@ public class LoginResponse {
     private String name;
     private String email;
     private String role;
+    private String department;
     private String designation;
+    private Boolean canAssignTask;
     private String token;
     private Boolean passwordResetRequired;
 }

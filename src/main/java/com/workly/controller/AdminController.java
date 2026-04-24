@@ -1,24 +1,21 @@
 package com.workly.controller;
 
 import com.workly.dto.AdminAttendanceEmployeeDto;
+import com.workly.dto.ApproveUserRequest;
 import com.workly.dto.AssignTaskRequest;
 import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
-import com.workly.dto.CreateUserRequest;
 import com.workly.dto.EmployeeAttendanceOverviewDto;
 import com.workly.dto.ErrorResponse;
 import com.workly.dto.ReassignTaskRequest;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.dto.TaskActionResponse;
-import com.workly.dto.VerifyEmailRequest;
-import com.workly.dto.VerifyEmailResponse;
 import com.workly.entity.Employee;
 import com.workly.entity.Task;
 import com.workly.entity.TaskAssignment;
 import com.workly.repo.TaskAssignmentRepository;
 import com.workly.repo.TaskRepository;
 import com.workly.service.AttendanceService;
-import com.workly.service.EmailVerificationService;
 import com.workly.service.EmployeeService;
 import com.workly.service.FileService;
 import com.workly.service.TaskService;
@@ -49,8 +46,6 @@ import org.springframework.web.multipart.MultipartFile;
 @RequiredArgsConstructor
 public class AdminController {
 
-    private static final Logger log = LoggerFactory.getLogger(AdminController.class);
-
     private final TaskService taskService;
 
     @Autowired
@@ -66,33 +61,22 @@ public class AdminController {
     private TaskRepository taskRepo;
 
     @Autowired
-    private EmailVerificationService emailVerificationService;
-
-    @Autowired
     private AttendanceService attendanceService;
 
-    @PostMapping("/create-user")
-    public ResponseEntity<?> createUser(@RequestBody CreateUserRequest request) {
+    @GetMapping("/pending-users")
+    public ResponseEntity<List<Employee>> getPendingUsers() {
+        return ResponseEntity.ok(employeeService.getPendingEmployees());
+    }
+
+    @PostMapping("/approve-user/{id}")
+    public ResponseEntity<?> approveUser(@PathVariable("id") String pendingUserId, @RequestBody ApproveUserRequest request) {
         try {
-            Employee employee = employeeService.createEmployee(request);
+            Employee employee = employeeService.approvePendingUser(pendingUserId, request);
             return ResponseEntity.ok(employee);
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(new ErrorResponse("Failed to create user: " + e.getMessage()));
-        }
-    }
-
-    @PostMapping("/verify-email")
-    public ResponseEntity<?> verifyEmail(@RequestBody VerifyEmailRequest request) {
-        try {
-            VerifyEmailResponse response = emailVerificationService.sendVerificationEmail(request);
-            return ResponseEntity.ok(response);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
-        } catch (Exception e) {
-            log.error("Verify email failed for {}", request.getEmail(), e);
-            return ResponseEntity.status(500).body(new ErrorResponse("Failed to send verification email: " + e.getMessage()));
+            return ResponseEntity.status(500).body(new ErrorResponse("Failed to approve user: " + e.getMessage()));
         }
     }
 

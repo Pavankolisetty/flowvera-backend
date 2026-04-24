@@ -10,7 +10,9 @@ public class EmployeeProfileResponse {
     private String email;
     private String role;
     private String phone;
+    private String department;
     private String designation;
+    private Boolean canAssignTask;
     private LocalDateTime createdAt;
     private Integer totalTasksAssigned;
     private Integer totalTasksCompleted;

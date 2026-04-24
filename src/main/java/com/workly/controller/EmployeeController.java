@@ -148,8 +148,16 @@ public class EmployeeController {
     @GetMapping("/assignable-employees")
     public ResponseEntity<List<Employee>> getAssignableEmployees(Authentication auth) {
         String empId = auth.getName();
+        Employee requester = employeeService.findByEmpId(empId);
+        if (requester == null) {
+            return ResponseEntity.ok(List.of());
+        }
+        if (requester.getRole() != com.workly.entity.Role.ADMIN && !Boolean.TRUE.equals(requester.getCanAssignTask())) {
+            return ResponseEntity.ok(List.of());
+        }
         List<Employee> employees = employeeService.getAllEmployees().stream()
             .filter(employee -> employee.getRole() != com.workly.entity.Role.ADMIN)
+            .filter(employee -> Boolean.TRUE.equals(employee.getIsApproved()))
             .filter(employee -> !employee.getEmpId().equals(empId))
             .toList();
         return ResponseEntity.ok(employees);
