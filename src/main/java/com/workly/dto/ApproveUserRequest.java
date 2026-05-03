@@ -7,4 +7,5 @@ public class ApproveUserRequest {
     private String department;
     private String designation;
     private Boolean canAssignTask;
+    private String reportingManagerEmpId;
 }

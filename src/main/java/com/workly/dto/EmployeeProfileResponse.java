@@ -13,6 +13,8 @@ public class EmployeeProfileResponse {
     private String department;
     private String designation;
     private Boolean canAssignTask;
+    private String reportingManagerEmpId;
+    private String reportingManagerName;
     private LocalDateTime createdAt;
     private Integer totalTasksAssigned;
     private Integer totalTasksCompleted;

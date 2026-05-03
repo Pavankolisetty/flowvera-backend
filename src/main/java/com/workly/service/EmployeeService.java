@@ -7,6 +7,7 @@ import com.workly.entity.TaskAssignment;
 import com.workly.dto.CreateUserRequest;
 import com.workly.dto.EmployeeProfileResponse;
 import com.workly.dto.UpdateProfileRequest;
+import com.workly.dto.UpdateReportingManagerRequest;
 
 public interface EmployeeService {
     Employee createPendingEmployee(CreateUserRequest request);
@@ -16,6 +17,7 @@ public interface EmployeeService {
     Employee findByEmail(String email);
     EmployeeProfileResponse getProfile(String empId);
     EmployeeProfileResponse updateProfile(String empId, UpdateProfileRequest request);
+    Employee updateReportingManager(String empId, UpdateReportingManagerRequest request);
     boolean updatePassword(String empId, String oldPassword, String newPassword);
     List<TaskAssignment> viewMyTasks(String empId);
     List<TaskAssignment> viewMyActiveTasks(String empId);

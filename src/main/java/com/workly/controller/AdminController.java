@@ -7,9 +7,11 @@ import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
 import com.workly.dto.EmployeeAttendanceOverviewDto;
 import com.workly.dto.ErrorResponse;
+import com.workly.dto.LeaveRequestDto;
 import com.workly.dto.ReassignTaskRequest;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.dto.TaskActionResponse;
+import com.workly.dto.UpdateReportingManagerRequest;
 import com.workly.entity.Employee;
 import com.workly.entity.Task;
 import com.workly.entity.TaskAssignment;
@@ -18,6 +20,7 @@ import com.workly.repo.TaskRepository;
 import com.workly.service.AttendanceService;
 import com.workly.service.EmployeeService;
 import com.workly.service.FileService;
+import com.workly.service.LeaveRequestService;
 import com.workly.service.TaskService;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -62,6 +65,9 @@ public class AdminController {
 
     @Autowired
     private AttendanceService attendanceService;
+
+    @Autowired
+    private LeaveRequestService leaveRequestService;
 
     @GetMapping("/pending-users")
     public ResponseEntity<List<Employee>> getPendingUsers() {
@@ -198,6 +204,17 @@ public class AdminController {
         return ResponseEntity.ok(employeeService.getAllEmployees());
     }
 
+    @PutMapping("/employees/{empId}/reporting-manager")
+    public ResponseEntity<?> updateReportingManager(
+            @PathVariable String empId,
+            @RequestBody UpdateReportingManagerRequest request) {
+        try {
+            return ResponseEntity.ok(employeeService.updateReportingManager(empId, request));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
     @GetMapping("/attendance/today")
     public ResponseEntity<List<AdminAttendanceEmployeeDto>> getTodayAttendance() {
         return ResponseEntity.ok(attendanceService.getTodayAttendanceForAdmin());
@@ -209,6 +226,20 @@ public class AdminController {
             @RequestParam(value = "days", defaultValue = "7") int days,
             @RequestParam(value = "month", required = false) YearMonth month) {
         return ResponseEntity.ok(attendanceService.getEmployeeHistory(empId, days, null, month));
+    }
+
+    @GetMapping("/leave-requests")
+    public ResponseEntity<List<LeaveRequestDto>> getLeaveRequests(Authentication auth) {
+        return ResponseEntity.ok(leaveRequestService.getManagedRequests(auth.getName()));
+    }
+
+    @PostMapping("/leave-requests/approve/{requestId}")
+    public ResponseEntity<?> approveLeaveRequest(@PathVariable Long requestId, Authentication auth) {
+        try {
+            return ResponseEntity.ok(leaveRequestService.approveRequest(requestId, auth.getName()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
     }
 
     @GetMapping("/download-document/{type}/{id}")

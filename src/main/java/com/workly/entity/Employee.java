@@ -31,6 +31,14 @@ public class Employee {
     @Column(nullable = false)
     private Boolean canAssignTask = false;
 
+    private String reportingManagerEmpId;
+
+    @Transient
+    private String reportingManagerName;
+
+    @Transient
+    private String reportingManagerEmployeeId;
+
     @JsonIgnore
     private String password;
 
