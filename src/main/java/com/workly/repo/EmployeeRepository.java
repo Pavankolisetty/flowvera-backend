@@ -15,7 +15,6 @@ public interface EmployeeRepository extends JpaRepository<Employee, String> {
     Optional<Employee> findByPhone(String phone);
     List<Employee> findByIsApprovedFalseAndRole(Role role);
     List<Employee> findByRole(Role role);
-    List<Employee> findByReportingManagerEmpIdAndIsApprovedTrue(String reportingManagerEmpId);
 
     @Query("SELECT MAX(e.empId) FROM Employee e")
     String findMaxEmpId();

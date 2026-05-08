@@ -7,13 +7,9 @@ import com.workly.dto.AttendanceSessionDto;
 import com.workly.dto.EmployeeAttendanceOverviewDto;
 import com.workly.entity.AttendanceSession;
 import com.workly.entity.Employee;
-import com.workly.entity.LeaveRequest;
-import com.workly.entity.LeaveRequestStatus;
-import com.workly.entity.LeaveRequestType;
 import com.workly.entity.Role;
 import com.workly.repo.AttendanceSessionRepository;
 import com.workly.repo.EmployeeRepository;
-import com.workly.repo.LeaveRequestRepository;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -38,7 +34,6 @@ public class AttendanceServiceImpl implements AttendanceService {
 
     private final AttendanceSessionRepository attendanceSessionRepository;
     private final EmployeeRepository employeeRepository;
-    private final LeaveRequestRepository leaveRequestRepository;
     private final HolidayCalendarService holidayCalendarService;
 
     @Value("${attendance.absent-upper-limit-minutes:90}")
@@ -236,15 +231,6 @@ public class AttendanceServiceImpl implements AttendanceService {
         List<AttendanceSession> sessions = attendanceSessionRepository
             .findByEmployeeEmpIdAndClockInAtGreaterThanEqualOrderByClockInAtDesc(employee.getEmpId(), fetchStart);
         Map<LocalDate, String> holidays = holidayCalendarService.getNationalHolidays(month);
-        Map<LocalDate, LeaveRequest> approvedRequestsByDate = new HashMap<>();
-        for (LeaveRequest request : leaveRequestRepository.findByEmployeeEmpIdAndRequestDateBetweenAndStatus(
-            employee.getEmpId(),
-            monthStart,
-            monthEnd,
-            LeaveRequestStatus.APPROVED
-        )) {
-            approvedRequestsByDate.put(request.getRequestDate(), request);
-        }
         List<AttendanceCalendarDayDto> calendarDays = new ArrayList<>();
         LocalDate today = currentDate();
         LocalDateTime now = currentDateTime();
@@ -262,12 +248,9 @@ public class AttendanceServiceImpl implements AttendanceService {
             dayDto.setHoliday(holidays.containsKey(date));
             dayDto.setHolidayName(holidays.get(date));
             boolean weeklyOff = date.getDayOfWeek() == DayOfWeek.SUNDAY;
-            LeaveRequest approvedLeaveRequest = approvedRequestsByDate.get(date);
 
             if (dayDto.isBeforeJoiningDate()) {
                 dayDto.setStatus("NOT_JOINED");
-            } else if (approvedLeaveRequest != null) {
-                applyApprovedLeave(dayDto, approvedLeaveRequest);
             } else if ((dayDto.isHoliday() || weeklyOff) && summary.getWorkedMinutes() == 0) {
                 dayDto.setStatus("HOLIDAY");
                 if (dayDto.getHolidayName() == null && weeklyOff) {
@@ -283,25 +266,6 @@ public class AttendanceServiceImpl implements AttendanceService {
         }
 
         return calendarDays;
-    }
-
-    private void applyApprovedLeave(AttendanceCalendarDayDto dayDto, LeaveRequest request) {
-        dayDto.setLeaveRequestId(request.getId());
-        dayDto.setLeaveType(request.getType().name());
-        dayDto.setLeaveReason(request.getReason());
-        dayDto.setWorkFromHome(request.getType() == LeaveRequestType.WFH);
-        dayDto.setStatus(request.getType() == LeaveRequestType.WFH ? "WFH" : "LEAVE");
-        dayDto.setHolidayName(request.getType() == LeaveRequestType.WFH
-            ? "Work from home approved"
-            : formatLeaveType(request.getType()) + " approved");
-    }
-
-    private String formatLeaveType(LeaveRequestType type) {
-        return switch (type) {
-            case CASUAL -> "Casual leave";
-            case SICK -> "Sick leave";
-            case WFH -> "Work from home";
-        };
     }
 
     private AttendanceDaySummaryDto buildDaySummary(List<AttendanceSession> sessions, LocalDate date, LocalDateTime now) {

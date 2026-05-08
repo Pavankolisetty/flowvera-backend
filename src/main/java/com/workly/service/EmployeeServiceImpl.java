@@ -7,7 +7,6 @@ import com.workly.dto.ApproveUserRequest;
 import com.workly.dto.CreateUserRequest;
 import com.workly.dto.EmployeeProfileResponse;
 import com.workly.dto.UpdateProfileRequest;
-import com.workly.dto.UpdateReportingManagerRequest;
 import com.workly.entity.Employee;
 import com.workly.entity.Role;
 import com.workly.entity.TaskAssignment;
@@ -119,7 +118,6 @@ public class EmployeeServiceImpl implements EmployeeService {
             pendingEmployee.setPhoneVerified(true);
             pendingEmployee.setIsApproved(true);
             pendingEmployee.setCanAssignTask(Boolean.TRUE.equals(request.getCanAssignTask()));
-            pendingEmployee.setReportingManagerEmpId(resolveReportingManager(request, pendingEmployee.getEmpId()));
             pendingEmployee.setPassword(passwordEncoder.encode(temporaryPassword));
             pendingEmployee.setPasswordResetRequired(true);
             pendingEmployee.setPhoneCountryCode(resolvePhoneCountryCode(pendingEmployee.getPhone()));
@@ -141,7 +139,6 @@ public class EmployeeServiceImpl implements EmployeeService {
         approvedEmployee.setPhoneVerified(true);
         approvedEmployee.setIsApproved(true);
         approvedEmployee.setCanAssignTask(Boolean.TRUE.equals(request.getCanAssignTask()));
-        approvedEmployee.setReportingManagerEmpId(resolveReportingManager(request, approvedEmpId));
         approvedEmployee.setPassword(passwordEncoder.encode(temporaryPassword));
         approvedEmployee.setPasswordResetRequired(true);
         approvedEmployee.setPhone(pendingEmployee.getPhone());
@@ -296,31 +293,6 @@ public class EmployeeServiceImpl implements EmployeeService {
     }
 
     @Override
-    @Transactional
-    public Employee updateReportingManager(String empId, UpdateReportingManagerRequest request) {
-        Employee employee = employeeRepo.findByEmpId(empId)
-            .orElseThrow(() -> new IllegalArgumentException("Employee not found."));
-        if (employee.getRole() == Role.ADMIN) {
-            throw new IllegalArgumentException("Admin accounts do not require a reporting manager.");
-        }
-
-        String managerEmpId = request.getReportingManagerEmpId() == null
-            ? ""
-            : request.getReportingManagerEmpId().trim();
-        if (managerEmpId.isBlank()) {
-            employee.setReportingManagerEmpId(null);
-        } else {
-            ApproveUserRequest approvalStyleRequest = new ApproveUserRequest();
-            approvalStyleRequest.setReportingManagerEmpId(managerEmpId);
-            employee.setReportingManagerEmpId(resolveReportingManager(approvalStyleRequest, employee.getEmpId()));
-        }
-
-        Employee saved = employeeRepo.save(employee);
-        hydrateManagerDetails(saved);
-        return saved;
-    }
-
-    @Override
     public boolean updatePassword(String empId, String oldPassword, String newPassword) {
         Employee employee = findByEmpId(empId);
         if (employee != null && passwordEncoder.matches(oldPassword, employee.getPassword())) {
@@ -401,7 +373,6 @@ public class EmployeeServiceImpl implements EmployeeService {
                 employee.setCanAssignTask(employee.getRole() == Role.ADMIN);
                 hasUpdates = true;
             }
-            hydrateManagerDetails(employee);
             if (employee.getPasswordResetRequired() == null) {
                 employee.setPasswordResetRequired(false);
                 hasUpdates = true;
@@ -486,8 +457,6 @@ public class EmployeeServiceImpl implements EmployeeService {
         response.setDepartment(employee.getDepartment());
         response.setDesignation(employee.getDesignation());
         response.setCanAssignTask(Boolean.TRUE.equals(employee.getCanAssignTask()));
-        response.setReportingManagerEmpId(employee.getReportingManagerEmpId());
-        response.setReportingManagerName(resolveManagerName(employee.getReportingManagerEmpId()));
         response.setCreatedAt(employee.getCreatedAt());
         response.setTotalTasksAssigned(totalAssigned);
         response.setTotalTasksCompleted(totalCompleted);
@@ -553,38 +522,5 @@ public class EmployeeServiceImpl implements EmployeeService {
             </div>
             """.formatted(employee.getName(), employee.getEmpId(), employee.getDepartment(), employee.getDesignation(), temporaryPassword);
         mailDeliveryService.sendHtmlEmail(employee.getEmail(), "Your Flowvera account is approved", html);
-    }
-
-    private String resolveReportingManager(ApproveUserRequest request, String employeeEmpId) {
-        String managerEmpId = request.getReportingManagerEmpId() == null ? "" : request.getReportingManagerEmpId().trim();
-        if (managerEmpId.isBlank()) {
-            return null;
-        }
-        if (managerEmpId.equals(employeeEmpId)) {
-            throw new IllegalArgumentException("An employee cannot report to themselves.");
-        }
-        Employee manager = employeeRepo.findByEmpId(managerEmpId)
-            .orElseThrow(() -> new IllegalArgumentException("Selected reporting manager was not found."));
-        if (manager.getRole() != Role.ADMIN && !Boolean.TRUE.equals(manager.getCanAssignTask())) {
-            throw new IllegalArgumentException("Reporting manager must have task assignment authority.");
-        }
-        if (!Boolean.TRUE.equals(manager.getIsApproved())) {
-            throw new IllegalArgumentException("Reporting manager must be an approved employee.");
-        }
-        return manager.getEmpId();
-    }
-
-    private void hydrateManagerDetails(Employee employee) {
-        employee.setReportingManagerEmployeeId(employee.getReportingManagerEmpId());
-        employee.setReportingManagerName(resolveManagerName(employee.getReportingManagerEmpId()));
-    }
-
-    private String resolveManagerName(String managerEmpId) {
-        if (managerEmpId == null || managerEmpId.isBlank()) {
-            return null;
-        }
-        return employeeRepo.findByEmpId(managerEmpId)
-            .map(Employee::getName)
-            .orElse(null);
     }
 }

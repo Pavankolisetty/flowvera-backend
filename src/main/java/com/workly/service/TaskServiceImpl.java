@@ -98,10 +98,6 @@ public class TaskServiceImpl implements TaskService {
             throw new RuntimeException("A due date is required when delegating a task");
         }
 
-        if (assigner.getRole() != Role.ADMIN && !assignedBy.equals(emp.getReportingManagerEmpId())) {
-            throw new RuntimeException("You can assign tasks only to employees who report to you.");
-        }
-
         // Check if task is already assigned to this employee
         if (assignRepo.existsByTaskIdAndEmployeeEmpId(request.getTaskId(), request.getEmpId())) {
             throw new RuntimeException("Task is already assigned to employee: " + request.getEmpId());

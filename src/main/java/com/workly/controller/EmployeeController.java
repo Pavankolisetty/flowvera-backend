@@ -8,8 +8,6 @@ import com.workly.dto.DueDateExtensionRequest;
 import com.workly.dto.EmployeeAttendanceOverviewDto;
 import com.workly.dto.EmployeeProfileResponse;
 import com.workly.dto.ErrorResponse;
-import com.workly.dto.LeaveRequestCreateRequest;
-import com.workly.dto.LeaveRequestDto;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.dto.TaskActionResponse;
 import com.workly.dto.UpdatePasswordRequest;
@@ -22,7 +20,6 @@ import com.workly.repo.TaskAssignmentRepository;
 import com.workly.service.AttendanceService;
 import com.workly.service.EmployeeService;
 import com.workly.service.FileService;
-import com.workly.service.LeaveRequestService;
 import com.workly.service.TaskService;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -52,7 +49,6 @@ public class EmployeeController {
     private final EmployeeService employeeService;
     private final TaskService taskService;
     private final AttendanceService attendanceService;
-    private final LeaveRequestService leaveRequestService;
 
     @Autowired
     private FileService fileService;
@@ -116,44 +112,6 @@ public class EmployeeController {
         return ResponseEntity.ok(attendanceService.clockOut(auth.getName(), request.getSessionKey()));
     }
 
-    @GetMapping("/leave-requests")
-    public ResponseEntity<List<LeaveRequestDto>> getMyLeaveRequests(Authentication auth) {
-        return ResponseEntity.ok(leaveRequestService.getMyRequests(auth.getName()));
-    }
-
-    @PostMapping("/leave-requests")
-    public ResponseEntity<?> requestLeave(@RequestBody LeaveRequestCreateRequest request, Authentication auth) {
-        try {
-            return ResponseEntity.ok(leaveRequestService.createRequest(auth.getName(), request));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
-        }
-    }
-
-    @PutMapping("/leave-requests/notifications/read")
-    public ResponseEntity<List<LeaveRequestDto>> markLeaveNotificationsRead(Authentication auth) {
-        return ResponseEntity.ok(leaveRequestService.markEmployeeNotificationsRead(auth.getName()));
-    }
-
-    @GetMapping("/managed-leave-requests")
-    public ResponseEntity<List<LeaveRequestDto>> getManagedLeaveRequests(Authentication auth) {
-        return ResponseEntity.ok(leaveRequestService.getManagedRequests(auth.getName()));
-    }
-
-    @PutMapping("/managed-leave-requests/notifications/read")
-    public ResponseEntity<List<LeaveRequestDto>> markManagedLeaveNotificationsRead(Authentication auth) {
-        return ResponseEntity.ok(leaveRequestService.markManagerNotificationsRead(auth.getName()));
-    }
-
-    @PostMapping("/managed-leave-requests/approve/{requestId}")
-    public ResponseEntity<?> approveManagedLeaveRequest(@PathVariable Long requestId, Authentication auth) {
-        try {
-            return ResponseEntity.ok(leaveRequestService.approveRequest(requestId, auth.getName()));
-        } catch (RuntimeException e) {
-            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
-        }
-    }
-
     @PutMapping("/update-progress")
     public ResponseEntity<?> updateProgress(@RequestBody UpdateProgressRequest request, Authentication auth) {
         try {
@@ -201,8 +159,6 @@ public class EmployeeController {
             .filter(employee -> employee.getRole() != com.workly.entity.Role.ADMIN)
             .filter(employee -> Boolean.TRUE.equals(employee.getIsApproved()))
             .filter(employee -> !employee.getEmpId().equals(empId))
-            .filter(employee -> requester.getRole() == com.workly.entity.Role.ADMIN
-                || empId.equals(employee.getReportingManagerEmpId()))
             .toList();
         return ResponseEntity.ok(employees);
     }
