@@ -93,6 +93,9 @@ public class TaskServiceImpl implements TaskService {
         if (!Boolean.TRUE.equals(emp.getIsApproved())) {
             throw new RuntimeException("Tasks can only be assigned to approved users");
         }
+        if (assigner.getRole() != Role.ADMIN && !sameDepartment(assigner, emp)) {
+            throw new RuntimeException("You can assign tasks only to employees in your department");
+        }
 
         if (assigner.getRole() != Role.ADMIN && request.getDueDate() == null) {
             throw new RuntimeException("A due date is required when delegating a task");
@@ -686,6 +689,12 @@ public class TaskServiceImpl implements TaskService {
 
     private boolean isAdminActor(Employee employee) {
         return employee != null && employee.getRole() == Role.ADMIN;
+    }
+
+    private boolean sameDepartment(Employee assigner, Employee employee) {
+        String assignerDepartment = assigner == null ? "" : String.valueOf(assigner.getDepartment()).trim();
+        String employeeDepartment = employee == null ? "" : String.valueOf(employee.getDepartment()).trim();
+        return !assignerDepartment.isBlank() && assignerDepartment.equalsIgnoreCase(employeeDepartment);
     }
 
     private String displayName(Employee employee, String fallback) {

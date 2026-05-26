@@ -7,7 +7,9 @@ import com.workly.dto.CreateUserRequest;
 import com.workly.dto.SendPhoneOtpRequest;
 import com.workly.dto.StartRegistrationRequest;
 import com.workly.dto.VerifyPhoneOtpRequest;
+import com.workly.entity.Employee;
 import com.workly.entity.EmailVerification;
+import com.workly.entity.Role;
 import com.workly.repo.EmailVerificationRepository;
 import com.workly.repo.EmployeeRepository;
 import java.security.SecureRandom;
@@ -244,10 +246,58 @@ public class RegistrationService {
         createRequest.setName(request.getName().trim());
         createRequest.setEmail(email);
         createRequest.setPhone(phone);
-        employeeService.createPendingEmployee(createRequest);
+        Employee pendingEmployee = employeeService.createPendingEmployee(createRequest);
         emailVerificationRepository.delete(verification);
+        sendAdminApprovalRequestEmail(pendingEmployee);
 
         return message("Registration successful. Waiting for admin approval");
+    }
+
+    private void sendAdminApprovalRequestEmail(Employee pendingEmployee) {
+        if (pendingEmployee == null) {
+            return;
+        }
+
+        String approvalUrl = adminApprovalUrl();
+        String html = """
+            <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.6;background:#f3f4f6;padding:24px;">
+              <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
+                <p style="margin:0 0 12px;">Hello Admin,</p>
+                <p style="margin:0 0 12px;"><strong>%s</strong> has completed registration and is waiting for account approval.</p>
+                <p style="margin:0 0 12px;"><strong>Email:</strong> %s</p>
+                <p style="margin:0 0 16px;"><strong>Phone:</strong> %s</p>
+                <p style="margin:0 0 20px;">Please open Flowvera, review the request, and assign the department and role.</p>
+                <p style="margin:0 0 20px;"><a href="%s" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;">Review User Approval</a></p>
+                <p style="margin:16px 0 0;"><strong>Regards,</strong><br/><strong>Flowvera</strong></p>
+              </div>
+            </div>
+            """.formatted(
+                escapeHtml(pendingEmployee.getName()),
+                escapeHtml(pendingEmployee.getEmail()),
+                escapeHtml(pendingEmployee.getPhone()),
+                approvalUrl);
+
+        employeeRepository.findByRole(Role.ADMIN).stream()
+            .filter(admin -> admin.getEmail() != null && !admin.getEmail().isBlank())
+            .forEach(admin -> {
+                try {
+                    mailDeliveryService.sendHtmlEmail(
+                        admin.getEmail(),
+                        "Flowvera user approval pending: " + pendingEmployee.getName(),
+                        html
+                    );
+                } catch (Exception ex) {
+                    log.error("Failed to send user approval notification to {}", admin.getEmail(), ex);
+                }
+            });
+    }
+
+    private String adminApprovalUrl() {
+        String baseUrl = frontendBaseUrl == null ? "" : frontendBaseUrl.trim();
+        if (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        return baseUrl + "/admin/user-approvals";
     }
 
     private EmailVerification getActiveRegistration(String email) {
@@ -350,5 +400,17 @@ public class RegistrationService {
         Map<String, Object> response = new HashMap<>();
         response.put("message", message);
         return response;
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;");
     }
 }

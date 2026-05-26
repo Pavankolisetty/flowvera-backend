@@ -245,6 +245,10 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
     }
 
+    private boolean isValidEmailFormat(String email) {
+        return email != null && email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    }
+
     @Override
     public Employee findByEmpId(String empId) {
         return employeeRepo.findByEmpId(empId).orElse(null);
@@ -281,7 +285,11 @@ public class EmployeeServiceImpl implements EmployeeService {
             throw new IllegalArgumentException("Phone number is required.");
         }
 
-        validateEmailDomain(nextEmail);
+        if (employee.getRole() != Role.ADMIN) {
+            validateEmailDomain(nextEmail);
+        } else if (!isValidEmailFormat(nextEmail)) {
+            throw new IllegalArgumentException("Invalid email format.");
+        }
 
         Employee existingEmailUser = employeeRepo
             .findFirstByEmailIgnoreCaseOrderByCreatedAtDesc(nextEmail)
@@ -317,13 +325,13 @@ public class EmployeeServiceImpl implements EmployeeService {
 
     @Override
     public List<TaskAssignment> viewMyTasks(String empId) {
-        return normalizeAutoCompletedAssignments(taskAssignmentRepo.findByEmployeeEmpId(empId));
+        return withAssignerDetails(normalizeAutoCompletedAssignments(taskAssignmentRepo.findByEmployeeEmpId(empId)));
     }
 
     @Override
     public List<TaskAssignment> viewMyActiveTasks(String empId) {
         normalizeAutoCompletedAssignments(taskAssignmentRepo.findByEmployeeEmpId(empId));
-        return taskAssignmentRepo.findByEmployeeEmpIdAndStatusNot(empId, TaskStatus.COMPLETED);
+        return withAssignerDetails(taskAssignmentRepo.findByEmployeeEmpIdAndStatusNot(empId, TaskStatus.COMPLETED));
     }
 
     @Override
@@ -358,7 +366,7 @@ public class EmployeeServiceImpl implements EmployeeService {
 
         TaskAssignment saved = taskAssignmentRepo.save(ta);
         recordProgressHistory(saved, saved.getProgress(), saved.getStatus(), "PROGRESS_UPDATED");
-        return saved;
+        return withAssignerDetails(saved);
     }
 
     @Override
@@ -538,6 +546,42 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
 
         return assignments;
+    }
+
+    private List<TaskAssignment> withAssignerDetails(List<TaskAssignment> assignments) {
+        return assignments.stream()
+            .map(this::withAssignerDetails)
+            .toList();
+    }
+
+    private TaskAssignment withAssignerDetails(TaskAssignment assignment) {
+        if (assignment == null || assignment.getAssignedBy() == null || assignment.getAssignedBy().isBlank()) {
+            return assignment;
+        }
+
+        Employee assigner = employeeRepo.findByEmpId(assignment.getAssignedBy()).orElse(null);
+        if (assigner == null) {
+            assignment.setAssignedByName("Unknown assigner");
+            assignment.setAssignedByRole(null);
+            return assignment;
+        }
+
+        assignment.setAssignedByName(displayName(assigner, assigner.getEmpId()));
+        assignment.setAssignedByRole(assigner.getRole() == null ? null : assigner.getRole().name());
+        return assignment;
+    }
+
+    private String displayName(Employee employee, String fallback) {
+        if (employee == null) {
+            return fallback;
+        }
+        if (employee.getName() != null && !employee.getName().isBlank()) {
+            return employee.getName().trim();
+        }
+        if (employee.getEmpId() != null && !employee.getEmpId().isBlank()) {
+            return employee.getEmpId().trim();
+        }
+        return fallback;
     }
 
     private void recordProgressHistory(TaskAssignment assignment, Integer progress, TaskStatus status, String source) {

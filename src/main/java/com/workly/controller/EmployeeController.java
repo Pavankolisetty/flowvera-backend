@@ -159,6 +159,8 @@ public class EmployeeController {
             .filter(employee -> employee.getRole() != com.workly.entity.Role.ADMIN)
             .filter(employee -> Boolean.TRUE.equals(employee.getIsApproved()))
             .filter(employee -> !employee.getEmpId().equals(empId))
+            .filter(employee -> requester.getRole() == com.workly.entity.Role.ADMIN
+                || sameDepartment(requester.getDepartment(), employee.getDepartment()))
             .toList();
         return ResponseEntity.ok(employees);
     }
@@ -397,5 +399,11 @@ public class EmployeeController {
             default:
                 return "application/octet-stream";
         }
+    }
+
+    private boolean sameDepartment(String left, String right) {
+        String leftDepartment = left == null ? "" : left.trim();
+        String rightDepartment = right == null ? "" : right.trim();
+        return !leftDepartment.isBlank() && leftDepartment.equalsIgnoreCase(rightDepartment);
     }
 }
