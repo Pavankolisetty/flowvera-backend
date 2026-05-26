@@ -197,7 +197,10 @@ public class AdminController {
 
     @GetMapping("/employees")
     public ResponseEntity<List<Employee>> getAllEmployees() {
-        return ResponseEntity.ok(employeeService.getAllEmployees());
+        List<Employee> employees = employeeService.getAllEmployees().stream()
+            .filter(employee -> employee.getRole() == com.workly.entity.Role.ADMIN || Boolean.TRUE.equals(employee.getIsApproved()))
+            .toList();
+        return ResponseEntity.ok(employees);
     }
 
     @DeleteMapping("/employees/{empId}")

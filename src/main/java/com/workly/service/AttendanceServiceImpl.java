@@ -130,7 +130,7 @@ public class AttendanceServiceImpl implements AttendanceService {
 
         List<AdminAttendanceEmployeeDto> response = new ArrayList<>();
         for (Employee employee : employeeRepository.findAll()) {
-            if (employee.getRole() == Role.ADMIN) {
+            if (employee.getRole() == Role.ADMIN || !Boolean.TRUE.equals(employee.getIsApproved())) {
                 continue;
             }
 

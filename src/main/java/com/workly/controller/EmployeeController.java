@@ -245,7 +245,7 @@ public class EmployeeController {
             TaskAssignment assignment = taskService.requestDueDateExtension(request, auth.getName());
             return ResponseEntity.ok(new TaskActionResponse(
                 assignment,
-                "Due date extension request sent successfully."
+                "Due date updated successfully. The assigner has been notified."
             ));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
