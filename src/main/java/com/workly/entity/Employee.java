@@ -23,7 +23,7 @@ public class Employee {
     private Boolean emailVerified = false;
 
     @Column(nullable = false)
-    private Boolean phoneVerified = false;
+    private Boolean phoneVerified = true;
 
     @Column(nullable = false)
     private Boolean isApproved = false;
@@ -58,7 +58,7 @@ public class Employee {
             emailVerified = false;
         }
         if (phoneVerified == null) {
-            phoneVerified = false;
+            phoneVerified = true;
         }
         if (isApproved == null) {
             isApproved = false;

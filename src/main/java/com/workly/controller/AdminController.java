@@ -7,6 +7,7 @@ import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
 import com.workly.dto.EmployeeAttendanceOverviewDto;
 import com.workly.dto.ErrorResponse;
+import com.workly.dto.MessageResponse;
 import com.workly.dto.ReassignTaskRequest;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.dto.TaskActionResponse;
@@ -31,6 +32,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -196,6 +198,18 @@ public class AdminController {
     @GetMapping("/employees")
     public ResponseEntity<List<Employee>> getAllEmployees() {
         return ResponseEntity.ok(employeeService.getAllEmployees());
+    }
+
+    @DeleteMapping("/employees/{empId}")
+    public ResponseEntity<?> deleteEmployee(@PathVariable String empId) {
+        try {
+            employeeService.deleteEmployee(empId);
+            return ResponseEntity.ok(new MessageResponse("Employee and related history deleted successfully."));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(new ErrorResponse("Failed to delete employee: " + e.getMessage()));
+        }
     }
 
     @GetMapping("/attendance/today")

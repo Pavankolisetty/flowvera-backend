@@ -21,5 +21,6 @@ public interface EmployeeService {
     List<TaskAssignment> viewMyActiveTasks(String empId);
     TaskAssignment updateProgress(Long assignmentId, int progress, String empId);
     List<Employee> getAllEmployees();
+    void deleteEmployee(String empId);
 }
 

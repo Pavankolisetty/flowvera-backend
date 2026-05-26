@@ -12,11 +12,18 @@ import com.workly.entity.Role;
 import com.workly.entity.TaskAssignment;
 import com.workly.entity.TaskProgressHistory;
 import com.workly.entity.TaskStatus;
+import com.workly.repo.AttendanceSessionRepository;
+import com.workly.repo.EmailVerificationRepository;
 import com.workly.repo.EmployeeRepository;
+import com.workly.repo.PasswordResetRepository;
 import com.workly.repo.TaskAssignmentRepository;
 import com.workly.repo.TaskProgressHistoryRepository;
+import com.workly.repo.TaskRepository;
 import java.security.SecureRandom;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +38,10 @@ public class EmployeeServiceImpl implements EmployeeService {
     private final TaskAssignmentRepository taskAssignmentRepo;
     private final EmployeeRepository employeeRepo;
     private final TaskProgressHistoryRepository taskProgressHistoryRepo;
+    private final TaskRepository taskRepo;
+    private final AttendanceSessionRepository attendanceSessionRepo;
+    private final PasswordResetRepository passwordResetRepo;
+    private final EmailVerificationRepository emailVerificationRepo;
     private final DepartmentDirectory departmentDirectory;
     private final MailDeliveryService mailDeliveryService;
 
@@ -384,6 +395,48 @@ public class EmployeeServiceImpl implements EmployeeService {
         }
 
         return employees;
+    }
+
+    @Override
+    @Transactional
+    public void deleteEmployee(String empId) {
+        if (empId == null || empId.isBlank()) {
+            throw new IllegalArgumentException("Employee ID is required.");
+        }
+
+        Employee employee = employeeRepo.findByEmpId(empId)
+            .orElseThrow(() -> new IllegalArgumentException("Employee not found."));
+
+        if (employee.getRole() == Role.ADMIN) {
+            throw new IllegalArgumentException("Admin accounts cannot be deleted from user management.");
+        }
+
+        Map<Long, TaskAssignment> assignmentsToDelete = new LinkedHashMap<>();
+        addAssignments(assignmentsToDelete, taskAssignmentRepo.findByEmployeeEmpId(empId));
+        addAssignments(assignmentsToDelete, taskAssignmentRepo.findByAssignedByOrderByAssignedAtDesc(empId));
+
+        List<com.workly.entity.Task> createdTasks = taskRepo.findByCreatedBy(empId);
+        for (com.workly.entity.Task task : createdTasks) {
+            addAssignments(assignmentsToDelete, taskAssignmentRepo.findByTaskId(task.getId()));
+        }
+
+        taskAssignmentRepo.deleteAll(new ArrayList<>(assignmentsToDelete.values()));
+        taskAssignmentRepo.flush();
+        taskRepo.deleteAll(createdTasks);
+        taskRepo.flush();
+        attendanceSessionRepo.deleteAll(attendanceSessionRepo.findByEmployeeEmpId(empId));
+        attendanceSessionRepo.flush();
+        passwordResetRepo.deleteByEmailIgnoreCase(employee.getEmail());
+        emailVerificationRepo.deleteByEmailIgnoreCase(employee.getEmail());
+        employeeRepo.delete(employee);
+    }
+
+    private void addAssignments(Map<Long, TaskAssignment> target, List<TaskAssignment> assignments) {
+        for (TaskAssignment assignment : assignments) {
+            if (assignment.getId() != null) {
+                target.put(assignment.getId(), assignment);
+            }
+        }
     }
 
     private String generatePendingEmpId() {

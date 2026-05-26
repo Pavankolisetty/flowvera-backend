@@ -12,6 +12,7 @@ public interface TaskAssignmentRepository extends JpaRepository<TaskAssignment, 
     Optional<TaskAssignment> findByIdAndEmployeeEmpId(Long id, String empId);
     List<TaskAssignment> findByEmployeeEmpIdAndStatusNot(String empId, TaskStatus status);
     List<TaskAssignment> findByAssignedByOrderByAssignedAtDesc(String assignedBy);
+    List<TaskAssignment> findByTaskId(Long taskId);
     @EntityGraph(attributePaths = {"task", "employee", "progressHistory"})
     List<TaskAssignment> findAllByOrderByAssignedAtDesc();
     long countByEmployeeEmpId(String empId);
