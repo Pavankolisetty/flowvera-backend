@@ -11,6 +11,7 @@ public class LoginResponse {
     private String department;
     private String designation;
     private Boolean canAssignTask;
+    private Boolean departmentLead;
     private String token;
     private Boolean passwordResetRequired;
 }

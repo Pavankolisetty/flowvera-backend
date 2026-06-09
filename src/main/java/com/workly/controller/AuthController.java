@@ -224,6 +224,7 @@ public class AuthController {
         response.setDepartment(employee.getDepartment());
         response.setDesignation(employee.getDesignation());
         response.setCanAssignTask(Boolean.TRUE.equals(employee.getCanAssignTask()));
+        response.setDepartmentLead(Boolean.TRUE.equals(employee.getDepartmentLead()));
         response.setToken(jwtUtil.generateToken(employee.getEmpId(), employee.getRole().name()));
         response.setPasswordResetRequired(Boolean.TRUE.equals(employee.getPasswordResetRequired()));
         return response;

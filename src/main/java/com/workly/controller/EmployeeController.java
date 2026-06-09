@@ -10,16 +10,20 @@ import com.workly.dto.EmployeeProfileResponse;
 import com.workly.dto.ErrorResponse;
 import com.workly.dto.ReviewSubmissionRequest;
 import com.workly.dto.TaskActionResponse;
+import com.workly.dto.TaskAuthorityGrantRequest;
 import com.workly.dto.UpdatePasswordRequest;
 import com.workly.dto.UpdateProgressRequest;
 import com.workly.entity.Employee;
+import com.workly.entity.Role;
 import com.workly.entity.Task;
 import com.workly.entity.TaskAssignment;
 import com.workly.entity.TaskType;
+import com.workly.repo.EmployeeRepository;
 import com.workly.repo.TaskAssignmentRepository;
 import com.workly.service.AttendanceService;
 import com.workly.service.EmployeeService;
 import com.workly.service.FileService;
+import com.workly.service.MailDeliveryService;
 import com.workly.service.TaskService;
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -55,6 +59,12 @@ public class EmployeeController {
 
     @Autowired
     private TaskAssignmentRepository assignmentRepo;
+
+    @Autowired
+    private EmployeeRepository employeeRepo;
+
+    @Autowired
+    private MailDeliveryService mailDeliveryService;
 
     @PutMapping("/update-password")
     public ResponseEntity<String> updatePassword(@RequestBody UpdatePasswordRequest request, Authentication auth) {
@@ -221,6 +231,86 @@ public class EmployeeController {
         try {
             TaskAssignment assignment = taskService.assignTask(request, auth.getName());
             return ResponseEntity.ok(assignment);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/task-authority/grant")
+    public ResponseEntity<?> grantTaskAuthority(@RequestBody TaskAuthorityGrantRequest request, Authentication auth) {
+        try {
+            Employee departmentLead = employeeRepo.findByEmpId(auth.getName())
+                .orElseThrow(() -> new RuntimeException("Department Lead not found"));
+
+            if (departmentLead.getRole() == Role.ADMIN || !Boolean.TRUE.equals(departmentLead.getDepartmentLead())) {
+                throw new RuntimeException("Only the Department Lead can grant temporary task assignment authority.");
+            }
+
+            Employee employee = employeeRepo.findByEmpId(request.getEmpId())
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+            if (employee.getRole() == Role.ADMIN || !Boolean.TRUE.equals(employee.getIsApproved())) {
+                throw new RuntimeException("Authority can be granted only to approved employee accounts.");
+            }
+            if (employee.getEmpId().equals(departmentLead.getEmpId())) {
+                throw new RuntimeException("Department Lead already has task assignment authority.");
+            }
+            if (!sameDepartment(departmentLead.getDepartment(), employee.getDepartment())) {
+                throw new RuntimeException("You can grant authority only within your department.");
+            }
+            if (request.getStartDate() == null || request.getEndDate() == null) {
+                throw new RuntimeException("Start date and end date are required.");
+            }
+            if (request.getEndDate().isBefore(request.getStartDate())) {
+                throw new RuntimeException("End date cannot be before start date.");
+            }
+            if (request.getEndDate().isBefore(LocalDate.now())) {
+                throw new RuntimeException("End date cannot be in the past.");
+            }
+
+            employee.setCanAssignTask(true);
+            employee.setDepartmentLead(false);
+            employee.setTaskAuthorityStartDate(request.getStartDate());
+            employee.setTaskAuthorityEndDate(request.getEndDate());
+            employee.setTaskAuthorityGrantedBy(departmentLead.getEmpId());
+            employee.setTaskAuthorityReason(request.getReason() == null ? null : request.getReason().trim());
+            Employee saved = employeeRepo.save(employee);
+            sendAuthorityGrantEmail(departmentLead, saved);
+
+            return ResponseEntity.ok(saved);
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
+        }
+    }
+
+    @PostMapping("/task-authority/revoke/{empId}")
+    public ResponseEntity<?> revokeTaskAuthority(@PathVariable String empId, Authentication auth) {
+        try {
+            Employee departmentLead = employeeRepo.findByEmpId(auth.getName())
+                .orElseThrow(() -> new RuntimeException("Department Lead not found"));
+
+            if (departmentLead.getRole() == Role.ADMIN || !Boolean.TRUE.equals(departmentLead.getDepartmentLead())) {
+                throw new RuntimeException("Only the Department Lead can revoke temporary task assignment authority.");
+            }
+
+            Employee employee = employeeRepo.findByEmpId(empId)
+                .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+            if (!sameDepartment(departmentLead.getDepartment(), employee.getDepartment())) {
+                throw new RuntimeException("You can revoke authority only within your department.");
+            }
+            if (Boolean.TRUE.equals(employee.getDepartmentLead())) {
+                throw new RuntimeException("Department Lead authority cannot be revoked from this flow.");
+            }
+
+            employee.setCanAssignTask(false);
+            employee.setTaskAuthorityStartDate(null);
+            employee.setTaskAuthorityEndDate(null);
+            employee.setTaskAuthorityGrantedBy(null);
+            employee.setTaskAuthorityReason(null);
+            Employee saved = employeeRepo.save(employee);
+
+            return ResponseEntity.ok(saved);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(new ErrorResponse(e.getMessage()));
         }
@@ -405,5 +495,27 @@ public class EmployeeController {
         String leftDepartment = left == null ? "" : left.trim();
         String rightDepartment = right == null ? "" : right.trim();
         return !leftDepartment.isBlank() && leftDepartment.equalsIgnoreCase(rightDepartment);
+    }
+
+    private void sendAuthorityGrantEmail(Employee departmentLead, Employee employee) {
+        if (employee.getEmail() == null || employee.getEmail().isBlank()) {
+            return;
+        }
+        String html = """
+            <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.6;background:#f3f4f6;padding:24px;">
+              <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
+                <p style="margin:0 0 12px;">Dear %s,</p>
+                <p style="margin:0 0 12px;"><strong>%s</strong> granted you temporary task assignment authority.</p>
+                <p style="margin:0 0 12px;"><strong>Department:</strong> %s</p>
+                <p style="margin:0 0 12px;"><strong>Valid until:</strong> %s</p>
+                <p style="margin:0;">Please use this access only for department task coordination.</p>
+              </div>
+            </div>
+            """.formatted(
+                employee.getName(),
+                departmentLead.getName(),
+                employee.getDepartment(),
+                employee.getTaskAuthorityEndDate());
+        mailDeliveryService.sendHtmlEmail(employee.getEmail(), "Temporary task assignment authority granted", html);
     }
 }

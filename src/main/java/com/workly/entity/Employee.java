@@ -3,6 +3,7 @@ package com.workly.entity;
 import jakarta.persistence.*;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.*;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -30,6 +31,17 @@ public class Employee {
 
     @Column(nullable = false)
     private Boolean canAssignTask = false;
+
+    @Column(nullable = false)
+    private Boolean departmentLead = false;
+
+    private LocalDate taskAuthorityStartDate;
+
+    private LocalDate taskAuthorityEndDate;
+
+    private String taskAuthorityGrantedBy;
+
+    private String taskAuthorityReason;
 
     @JsonIgnore
     private String password;
@@ -65,6 +77,9 @@ public class Employee {
         }
         if (canAssignTask == null) {
             canAssignTask = false;
+        }
+        if (departmentLead == null) {
+            departmentLead = false;
         }
         if (passwordResetRequired == null) {
             passwordResetRequired = false;

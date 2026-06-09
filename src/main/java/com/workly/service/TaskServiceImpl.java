@@ -768,5 +768,19 @@ public class TaskServiceImpl implements TaskService {
         if (!Boolean.TRUE.equals(assigner.getIsApproved()) || !Boolean.TRUE.equals(assigner.getCanAssignTask())) {
             throw new RuntimeException("You are not allowed to assign tasks.");
         }
+        if (!Boolean.TRUE.equals(assigner.getDepartmentLead()) && assigner.getTaskAuthorityStartDate() != null
+                && assigner.getTaskAuthorityStartDate().isAfter(LocalDate.now())) {
+            throw new RuntimeException("Your temporary task assignment authority has not started yet.");
+        }
+        if (!Boolean.TRUE.equals(assigner.getDepartmentLead()) && assigner.getTaskAuthorityEndDate() != null
+                && assigner.getTaskAuthorityEndDate().isBefore(LocalDate.now())) {
+            assigner.setCanAssignTask(false);
+            assigner.setTaskAuthorityStartDate(null);
+            assigner.setTaskAuthorityEndDate(null);
+            assigner.setTaskAuthorityGrantedBy(null);
+            assigner.setTaskAuthorityReason(null);
+            empRepo.save(assigner);
+            throw new RuntimeException("Your temporary task assignment authority has expired.");
+        }
     }
 }

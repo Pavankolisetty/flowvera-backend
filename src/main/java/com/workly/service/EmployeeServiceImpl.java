@@ -20,6 +20,7 @@ import com.workly.repo.TaskAssignmentRepository;
 import com.workly.repo.TaskProgressHistoryRepository;
 import com.workly.repo.TaskRepository;
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -119,6 +120,9 @@ public class EmployeeServiceImpl implements EmployeeService {
         if (!departmentDirectory.isValidRole(department, designation)) {
             throw new IllegalArgumentException("Please select a valid role for the chosen department.");
         }
+        Employee existingDepartmentLead = findDepartmentLeadOrPermanentAssigner(department);
+        boolean requestedTaskAuthority = Boolean.TRUE.equals(request.getCanAssignTask());
+        boolean canAssignTask = requestedTaskAuthority && existingDepartmentLead == null;
         String temporaryPassword = generateTemporaryPassword();
         boolean usesTemporaryPendingId = pendingEmployee.getEmpId() != null
             && pendingEmployee.getEmpId().startsWith("PENDING-");
@@ -128,7 +132,12 @@ public class EmployeeServiceImpl implements EmployeeService {
             pendingEmployee.setEmailVerified(true);
             pendingEmployee.setPhoneVerified(true);
             pendingEmployee.setIsApproved(true);
-            pendingEmployee.setCanAssignTask(Boolean.TRUE.equals(request.getCanAssignTask()));
+            pendingEmployee.setCanAssignTask(canAssignTask);
+            pendingEmployee.setDepartmentLead(canAssignTask);
+            pendingEmployee.setTaskAuthorityStartDate(canAssignTask ? LocalDate.now() : null);
+            pendingEmployee.setTaskAuthorityEndDate(null);
+            pendingEmployee.setTaskAuthorityGrantedBy(canAssignTask ? "ADMIN" : null);
+            pendingEmployee.setTaskAuthorityReason(canAssignTask ? "Approved as Department Lead" : null);
             pendingEmployee.setPassword(passwordEncoder.encode(temporaryPassword));
             pendingEmployee.setPasswordResetRequired(true);
             pendingEmployee.setPhoneCountryCode(resolvePhoneCountryCode(pendingEmployee.getPhone()));
@@ -138,6 +147,9 @@ public class EmployeeServiceImpl implements EmployeeService {
 
             Employee approvedEmployee = employeeRepo.save(pendingEmployee);
             sendApprovalEmail(approvedEmployee, temporaryPassword);
+            if (requestedTaskAuthority && existingDepartmentLead != null) {
+                sendDepartmentLeadAuthorityRequest(existingDepartmentLead, approvedEmployee);
+            }
             return approvedEmployee;
         }
 
@@ -149,7 +161,12 @@ public class EmployeeServiceImpl implements EmployeeService {
         approvedEmployee.setEmailVerified(true);
         approvedEmployee.setPhoneVerified(true);
         approvedEmployee.setIsApproved(true);
-        approvedEmployee.setCanAssignTask(Boolean.TRUE.equals(request.getCanAssignTask()));
+        approvedEmployee.setCanAssignTask(canAssignTask);
+        approvedEmployee.setDepartmentLead(canAssignTask);
+        approvedEmployee.setTaskAuthorityStartDate(canAssignTask ? LocalDate.now() : null);
+        approvedEmployee.setTaskAuthorityEndDate(null);
+        approvedEmployee.setTaskAuthorityGrantedBy(canAssignTask ? "ADMIN" : null);
+        approvedEmployee.setTaskAuthorityReason(canAssignTask ? "Approved as Department Lead" : null);
         approvedEmployee.setPassword(passwordEncoder.encode(temporaryPassword));
         approvedEmployee.setPasswordResetRequired(true);
         approvedEmployee.setPhone(pendingEmployee.getPhone());
@@ -163,6 +180,9 @@ public class EmployeeServiceImpl implements EmployeeService {
         employeeRepo.flush();
         employeeRepo.save(approvedEmployee);
         sendApprovalEmail(approvedEmployee, temporaryPassword);
+        if (requestedTaskAuthority && existingDepartmentLead != null) {
+            sendDepartmentLeadAuthorityRequest(existingDepartmentLead, approvedEmployee);
+        }
         return approvedEmployee;
     }
 
@@ -392,6 +412,31 @@ public class EmployeeServiceImpl implements EmployeeService {
                 employee.setCanAssignTask(employee.getRole() == Role.ADMIN);
                 hasUpdates = true;
             }
+            if (employee.getDepartmentLead() == null) {
+                employee.setDepartmentLead(false);
+                hasUpdates = true;
+            }
+            if (shouldPromoteLegacyDepartmentLead(employee)) {
+                employee.setDepartmentLead(true);
+                employee.setTaskAuthorityStartDate(
+                    employee.getTaskAuthorityStartDate() == null ? LocalDate.now() : employee.getTaskAuthorityStartDate()
+                );
+                employee.setTaskAuthorityGrantedBy(
+                    employee.getTaskAuthorityGrantedBy() == null ? "ADMIN" : employee.getTaskAuthorityGrantedBy()
+                );
+                employee.setTaskAuthorityReason(
+                    employee.getTaskAuthorityReason() == null ? "Existing task authority migrated as Department Lead" : employee.getTaskAuthorityReason()
+                );
+                hasUpdates = true;
+            }
+            if (shouldExpireTaskAuthority(employee)) {
+                employee.setCanAssignTask(false);
+                employee.setTaskAuthorityStartDate(null);
+                employee.setTaskAuthorityEndDate(null);
+                employee.setTaskAuthorityGrantedBy(null);
+                employee.setTaskAuthorityReason(null);
+                hasUpdates = true;
+            }
             if (employee.getPasswordResetRequired() == null) {
                 employee.setPasswordResetRequired(false);
                 hasUpdates = true;
@@ -518,6 +563,11 @@ public class EmployeeServiceImpl implements EmployeeService {
         response.setDepartment(employee.getDepartment());
         response.setDesignation(employee.getDesignation());
         response.setCanAssignTask(Boolean.TRUE.equals(employee.getCanAssignTask()));
+        response.setDepartmentLead(Boolean.TRUE.equals(employee.getDepartmentLead()));
+        response.setTaskAuthorityStartDate(employee.getTaskAuthorityStartDate());
+        response.setTaskAuthorityEndDate(employee.getTaskAuthorityEndDate());
+        response.setTaskAuthorityGrantedBy(employee.getTaskAuthorityGrantedBy());
+        response.setTaskAuthorityReason(employee.getTaskAuthorityReason());
         response.setCreatedAt(employee.getCreatedAt());
         response.setTotalTasksAssigned(totalAssigned);
         response.setTotalTasksCompleted(totalCompleted);
@@ -619,5 +669,60 @@ public class EmployeeServiceImpl implements EmployeeService {
             </div>
             """.formatted(employee.getName(), employee.getEmpId(), employee.getDepartment(), employee.getDesignation(), temporaryPassword);
         mailDeliveryService.sendHtmlEmail(employee.getEmail(), "Your Flowvera account is approved", html);
+    }
+
+    private boolean shouldExpireTaskAuthority(Employee employee) {
+        return employee.getRole() != Role.ADMIN
+            && !Boolean.TRUE.equals(employee.getDepartmentLead())
+            && Boolean.TRUE.equals(employee.getCanAssignTask())
+            && employee.getTaskAuthorityEndDate() != null
+            && employee.getTaskAuthorityEndDate().isBefore(LocalDate.now());
+    }
+
+    private Employee findDepartmentLeadOrPermanentAssigner(String department) {
+        Employee departmentLead = employeeRepo
+            .findFirstByDepartmentIgnoreCaseAndDepartmentLeadTrueAndIsApprovedTrue(department)
+            .orElse(null);
+        if (departmentLead != null) {
+            return departmentLead;
+        }
+
+        return employeeRepo
+            .findFirstByDepartmentIgnoreCaseAndCanAssignTaskTrueAndIsApprovedTrue(department)
+            .filter(employee -> employee.getRole() != Role.ADMIN && employee.getTaskAuthorityEndDate() == null)
+            .orElse(null);
+    }
+
+    private boolean shouldPromoteLegacyDepartmentLead(Employee employee) {
+        return employee.getRole() != Role.ADMIN
+            && Boolean.TRUE.equals(employee.getIsApproved())
+            && Boolean.TRUE.equals(employee.getCanAssignTask())
+            && !Boolean.TRUE.equals(employee.getDepartmentLead())
+            && employee.getTaskAuthorityEndDate() == null
+            && employee.getDepartment() != null
+            && findDepartmentLeadOrPermanentAssigner(employee.getDepartment()) != null
+            && findDepartmentLeadOrPermanentAssigner(employee.getDepartment()).getEmpId().equals(employee.getEmpId());
+    }
+
+    private void sendDepartmentLeadAuthorityRequest(Employee departmentLead, Employee approvedEmployee) {
+        String html = """
+            <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;line-height:1.6;background:#f3f4f6;padding:24px;">
+              <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:28px;border:1px solid #e5e7eb;">
+                <p style="margin:0 0 12px;">Dear %s,</p>
+                <p style="margin:0 0 12px;">Admin has approved a new employee in your department and requested you to review task assignment authority.</p>
+                <p style="margin:0 0 12px;"><strong>Employee:</strong> %s (%s)</p>
+                <p style="margin:0 0 12px;"><strong>Department:</strong> %s</p>
+                <p style="margin:0;">Please open Flowvera and grant temporary task assignment authority if it is required.</p>
+              </div>
+            </div>
+            """.formatted(
+                displayName(departmentLead, "Department Lead"),
+                displayName(approvedEmployee, "New employee"),
+                approvedEmployee.getEmpId(),
+                approvedEmployee.getDepartment());
+        mailDeliveryService.sendHtmlEmail(
+            departmentLead.getEmail(),
+            "Admin request: Review task assignment authority",
+            html);
     }
 }
