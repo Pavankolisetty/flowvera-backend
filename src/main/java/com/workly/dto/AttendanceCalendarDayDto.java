@@ -16,4 +16,9 @@ public class AttendanceCalendarDayDto {
     private boolean holiday;
     private boolean beforeJoiningDate;
     private boolean futureDate;
+    private boolean leaveOrWfhApproved;
+    private String leaveRequestType;
+    private String leaveDayPart;
+    private String leaveLabel;
+    private boolean leaveWorked;
 }
