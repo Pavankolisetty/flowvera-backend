@@ -147,9 +147,12 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
         leaveRequest.setDayPart(request.getDayPart() == null ? LeaveDayPart.FULL_DAY : request.getDayPart());
         leaveRequest.setStartDate(request.getStartDate());
         leaveRequest.setEndDate(request.getEndDate());
+        leaveRequest.setRequestDate(request.getStartDate());
+        leaveRequest.setLegacyType(request.getRequestType() == LeaveRequestType.WFH ? "WFH" : "CASUAL");
         leaveRequest.setTotalDays(totalDays);
         leaveRequest.setReason(safeText(request.getReason()));
         leaveRequest.setStatus(LeaveRequestStatus.PENDING);
+        leaveRequest.setRequestedAt(LocalDateTime.now());
 
         for (Employee dependency : resolveDependencies(employee, request.getDependencyEmpIds())) {
             LeaveRequestDependency dependencyLink = new LeaveRequestDependency();
@@ -185,6 +188,8 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
 
         request.setStatus(LeaveRequestStatus.APPROVED);
         request.setDecidedAt(LocalDateTime.now());
+        request.setReviewedAt(request.getDecidedAt());
+        request.setReviewedBy("EMAIL_TOKEN");
         request.setEmployeeNotificationMessage("Your " + request.getRequestType() + " request was approved.");
         request.setEmployeeNotificationUnread(true);
         leaveRequestRepo.save(request);
@@ -205,6 +210,8 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
 
         request.setStatus(LeaveRequestStatus.REJECTED);
         request.setDecidedAt(LocalDateTime.now());
+        request.setReviewedAt(request.getDecidedAt());
+        request.setReviewedBy("EMAIL_TOKEN");
         request.setEmployeeNotificationMessage("Your " + request.getRequestType() + " request was rejected.");
         request.setEmployeeNotificationUnread(true);
         leaveRequestRepo.save(request);

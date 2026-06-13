@@ -45,6 +45,12 @@ public class LeaveRequest {
     @Column(nullable = false)
     private LocalDate endDate;
 
+    @Column(name = "request_date", nullable = false)
+    private LocalDate requestDate;
+
+    @Column(name = "type", nullable = false)
+    private String legacyType;
+
     @Column(nullable = false, precision = 5, scale = 1)
     private BigDecimal totalDays = BigDecimal.ZERO;
 
@@ -75,7 +81,13 @@ public class LeaveRequest {
 
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    private LocalDateTime requestedAt;
+
     private LocalDateTime decidedAt;
+
+    private LocalDateTime reviewedAt;
+
+    private String reviewedBy;
 
     @OneToMany(mappedBy = "leaveRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<LeaveRequestDependency> dependencies = new ArrayList<>();
@@ -92,6 +104,12 @@ public class LeaveRequest {
         if (totalDays == null) {
             totalDays = BigDecimal.ZERO;
         }
+        if (requestDate == null) {
+            requestDate = startDate;
+        }
+        if (legacyType == null || legacyType.isBlank()) {
+            legacyType = requestType == LeaveRequestType.WFH ? "WFH" : "CASUAL";
+        }
         if (noDepartmentLeadEscalated == null) {
             noDepartmentLeadEscalated = false;
         }
@@ -106,6 +124,9 @@ public class LeaveRequest {
         }
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (requestedAt == null) {
+            requestedAt = createdAt;
         }
     }
 }
