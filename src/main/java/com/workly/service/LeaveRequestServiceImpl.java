@@ -20,11 +20,14 @@ import java.math.RoundingMode;
 import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,8 +47,17 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
     private final EmployeeRepository employeeRepo;
     private final MailDeliveryService mailDeliveryService;
 
-    @Value("${leave.allocated-days:18.0}")
-    private BigDecimal allocatedLeaveDays;
+    @Value("${leave.monthly-days:2.0}")
+    private BigDecimal monthlyLeaveDays;
+
+    @Value("${leave.annual-days:24.0}")
+    private BigDecimal annualLeaveDays;
+
+    @Value("${wfh.monthly-days:3.0}")
+    private BigDecimal monthlyWfhDays;
+
+    @Value("${wfh.annual-days:36.0}")
+    private BigDecimal annualWfhDays;
 
     @Value("${leave.approval-token-expiry-hours:48}")
     private int approvalTokenExpiryHours;
@@ -56,10 +68,31 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
     @Override
     @Transactional(readOnly = true)
     public LeaveBalanceResponse getBalance(String empId) {
-        BigDecimal used = sumLeaveDays(empId, LeaveRequestStatus.APPROVED);
-        BigDecimal pending = sumLeaveDays(empId, LeaveRequestStatus.PENDING);
-        BigDecimal available = allocatedLeaveDays.subtract(used).subtract(pending).max(BigDecimal.ZERO);
-        return new LeaveBalanceResponse(scale(allocatedLeaveDays), scale(used), scale(pending), scale(available));
+        int currentYear = LocalDate.now().getYear();
+        BigDecimal leaveUsed = sumRequestDaysForYear(empId, LeaveRequestType.LEAVE, LeaveRequestStatus.APPROVED, currentYear);
+        BigDecimal leavePending = sumRequestDaysForYear(empId, LeaveRequestType.LEAVE, LeaveRequestStatus.PENDING, currentYear);
+        BigDecimal leaveAvailable = annualLeaveDays.subtract(leaveUsed).subtract(leavePending).max(BigDecimal.ZERO);
+
+        BigDecimal wfhUsed = sumRequestDaysForYear(empId, LeaveRequestType.WFH, LeaveRequestStatus.APPROVED, currentYear);
+        BigDecimal wfhPending = sumRequestDaysForYear(empId, LeaveRequestType.WFH, LeaveRequestStatus.PENDING, currentYear);
+        BigDecimal wfhAvailable = annualWfhDays.subtract(wfhUsed).subtract(wfhPending).max(BigDecimal.ZERO);
+
+        LeaveBalanceResponse response = new LeaveBalanceResponse();
+        response.setAllocated(scale(annualLeaveDays));
+        response.setUsed(scale(leaveUsed));
+        response.setPending(scale(leavePending));
+        response.setAvailable(scale(leaveAvailable));
+        response.setLeaveAllocated(scale(annualLeaveDays));
+        response.setLeaveUsed(scale(leaveUsed));
+        response.setLeavePending(scale(leavePending));
+        response.setLeaveAvailable(scale(leaveAvailable));
+        response.setLeaveMonthlyLimit(scale(monthlyLeaveDays));
+        response.setWfhAllocated(scale(annualWfhDays));
+        response.setWfhUsed(scale(wfhUsed));
+        response.setWfhPending(scale(wfhPending));
+        response.setWfhAvailable(scale(wfhAvailable));
+        response.setWfhMonthlyLimit(scale(monthlyWfhDays));
+        return response;
     }
 
     @Override
@@ -92,8 +125,10 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
         validateCreateRequest(employee, request);
         BigDecimal totalDays = calculateTotalDays(request.getStartDate(), request.getEndDate(), request.getDayPart());
 
-        if (request.getRequestType() == LeaveRequestType.LEAVE && totalDays.compareTo(getBalance(empId).getAvailable()) > 0) {
-            throw new IllegalArgumentException("Leave days cannot exceed available leave balance.");
+        if (request.getRequestType() == LeaveRequestType.LEAVE) {
+            validateQuota(empId, LeaveRequestType.LEAVE, request, totalDays, annualLeaveDays, monthlyLeaveDays);
+        } else if (request.getRequestType() == LeaveRequestType.WFH) {
+            validateQuota(empId, LeaveRequestType.WFH, request, totalDays, annualWfhDays, monthlyWfhDays);
         }
 
         List<LeaveRequest> overlaps = leaveRequestRepo.findOverlappingRequests(
@@ -405,18 +440,138 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
                 status.toUpperCase());
     }
 
-    private BigDecimal sumLeaveDays(String empId, LeaveRequestStatus status) {
-        LocalDate yearStart = LocalDate.now().withDayOfYear(1);
+    private BigDecimal sumRequestDaysForYear(String empId, LeaveRequestType requestType, LeaveRequestStatus status, int year) {
+        LocalDate yearStart = LocalDate.of(year, 1, 1);
+        LocalDate yearEnd = LocalDate.of(year, 12, 31);
         return leaveRequestRepo
             .findByEmployeeEmpIdAndRequestTypeAndStatusAndStartDateGreaterThanEqual(
                 empId,
-                LeaveRequestType.LEAVE,
+                requestType,
                 status,
                 yearStart
             )
             .stream()
-            .map(LeaveRequest::getTotalDays)
+            .filter(existing -> !existing.getEndDate().isBefore(yearStart) && !existing.getStartDate().isAfter(yearEnd))
+            .map(existing -> daysInsideYear(existing, year))
             .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private void validateQuota(
+        String empId,
+        LeaveRequestType requestType,
+        LeaveRequestCreateRequest request,
+        BigDecimal totalDays,
+        BigDecimal annualLimit,
+        BigDecimal monthlyLimit
+    ) {
+        Map<Integer, BigDecimal> requestedByYear =
+            requestedDaysByYear(request.getStartDate(), request.getEndDate(), request.getDayPart());
+        for (Map.Entry<Integer, BigDecimal> entry : requestedByYear.entrySet()) {
+            BigDecimal used = sumRequestDaysForYear(empId, requestType, LeaveRequestStatus.APPROVED, entry.getKey());
+            BigDecimal pending = sumRequestDaysForYear(empId, requestType, LeaveRequestStatus.PENDING, entry.getKey());
+            BigDecimal annualAvailable = annualLimit.subtract(used).subtract(pending).max(BigDecimal.ZERO);
+            if (entry.getValue().compareTo(annualAvailable) > 0) {
+                throw new IllegalArgumentException(
+                    requestType + " days cannot exceed available yearly balance for " + entry.getKey() + "."
+                );
+            }
+        }
+
+        Map<YearMonth, BigDecimal> requestedByMonth =
+            requestedDaysByMonth(request.getStartDate(), request.getEndDate(), request.getDayPart());
+        for (Map.Entry<YearMonth, BigDecimal> entry : requestedByMonth.entrySet()) {
+            BigDecimal activeDays = activeDaysInMonth(empId, requestType, entry.getKey());
+            if (activeDays.add(entry.getValue()).compareTo(monthlyLimit) > 0) {
+                throw new IllegalArgumentException(
+                    requestType + " monthly limit is " + scale(monthlyLimit) + " day(s) for " + entry.getKey() + "."
+                );
+            }
+        }
+    }
+
+    private BigDecimal activeDaysInMonth(String empId, LeaveRequestType requestType, YearMonth month) {
+        LocalDate yearStart = month.atDay(1).withDayOfYear(1);
+        LocalDate monthStart = month.atDay(1);
+        LocalDate monthEnd = month.atEndOfMonth();
+        BigDecimal total = BigDecimal.ZERO;
+
+        for (LeaveRequestStatus status : ACTIVE_STATUSES) {
+            total = total.add(leaveRequestRepo
+                .findByEmployeeEmpIdAndRequestTypeAndStatusAndStartDateGreaterThanEqual(
+                    empId,
+                    requestType,
+                    status,
+                    yearStart
+                )
+                .stream()
+                .filter(existing -> !existing.getEndDate().isBefore(monthStart) && !existing.getStartDate().isAfter(monthEnd))
+                .map(existing -> daysInsideMonth(existing, month))
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        }
+        return total;
+    }
+
+    private Map<Integer, BigDecimal> requestedDaysByYear(LocalDate startDate, LocalDate endDate, LeaveDayPart dayPart) {
+        Map<Integer, BigDecimal> totals = new LinkedHashMap<>();
+        LeaveDayPart resolvedDayPart = dayPart == null ? LeaveDayPart.FULL_DAY : dayPart;
+        if (resolvedDayPart != LeaveDayPart.FULL_DAY) {
+            totals.put(startDate.getYear(), BigDecimal.valueOf(0.5));
+            return totals;
+        }
+
+        LocalDate cursor = startDate;
+        while (!cursor.isAfter(endDate)) {
+            totals.merge(cursor.getYear(), BigDecimal.ONE, BigDecimal::add);
+            cursor = cursor.plusDays(1);
+        }
+        return totals;
+    }
+
+    private BigDecimal daysInsideYear(LeaveRequest request, int year) {
+        LeaveDayPart dayPart = request.getDayPart() == null ? LeaveDayPart.FULL_DAY : request.getDayPart();
+        if (dayPart != LeaveDayPart.FULL_DAY) {
+            return request.getStartDate().getYear() == year ? BigDecimal.valueOf(0.5) : BigDecimal.ZERO;
+        }
+
+        LocalDate yearStart = LocalDate.of(year, 1, 1);
+        LocalDate yearEnd = LocalDate.of(year, 12, 31);
+        LocalDate start = request.getStartDate().isBefore(yearStart) ? yearStart : request.getStartDate();
+        LocalDate end = request.getEndDate().isAfter(yearEnd) ? yearEnd : request.getEndDate();
+        if (end.isBefore(start)) {
+            return BigDecimal.ZERO;
+        }
+        return BigDecimal.valueOf(ChronoUnit.DAYS.between(start, end) + 1);
+    }
+
+    private Map<YearMonth, BigDecimal> requestedDaysByMonth(LocalDate startDate, LocalDate endDate, LeaveDayPart dayPart) {
+        Map<YearMonth, BigDecimal> totals = new LinkedHashMap<>();
+        LeaveDayPart resolvedDayPart = dayPart == null ? LeaveDayPart.FULL_DAY : dayPart;
+        if (resolvedDayPart != LeaveDayPart.FULL_DAY) {
+            totals.put(YearMonth.from(startDate), BigDecimal.valueOf(0.5));
+            return totals;
+        }
+
+        LocalDate cursor = startDate;
+        while (!cursor.isAfter(endDate)) {
+            YearMonth month = YearMonth.from(cursor);
+            totals.merge(month, BigDecimal.ONE, BigDecimal::add);
+            cursor = cursor.plusDays(1);
+        }
+        return totals;
+    }
+
+    private BigDecimal daysInsideMonth(LeaveRequest request, YearMonth month) {
+        LeaveDayPart dayPart = request.getDayPart() == null ? LeaveDayPart.FULL_DAY : request.getDayPart();
+        if (dayPart != LeaveDayPart.FULL_DAY) {
+            return YearMonth.from(request.getStartDate()).equals(month) ? BigDecimal.valueOf(0.5) : BigDecimal.ZERO;
+        }
+
+        LocalDate start = request.getStartDate().isBefore(month.atDay(1)) ? month.atDay(1) : request.getStartDate();
+        LocalDate end = request.getEndDate().isAfter(month.atEndOfMonth()) ? month.atEndOfMonth() : request.getEndDate();
+        if (end.isBefore(start)) {
+            return BigDecimal.ZERO;
+        }
+        return BigDecimal.valueOf(ChronoUnit.DAYS.between(start, end) + 1);
     }
 
     private BigDecimal calculateTotalDays(LocalDate startDate, LocalDate endDate, LeaveDayPart dayPart) {
