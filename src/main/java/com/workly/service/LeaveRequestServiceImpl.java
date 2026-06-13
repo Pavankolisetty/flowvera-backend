@@ -160,6 +160,7 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
 
         Employee approver = resolveApprover(employee);
         leaveRequest.setApproverEmpId(approver.getEmpId());
+        leaveRequest.setManagerEmpId(approver.getEmpId());
         leaveRequest.setApproverName(displayName(approver, approver.getEmpId()));
         leaveRequest.setNoDepartmentLeadEscalated(!Boolean.TRUE.equals(approver.getDepartmentLead()));
 
