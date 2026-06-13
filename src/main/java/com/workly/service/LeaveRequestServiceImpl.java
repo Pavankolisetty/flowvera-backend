@@ -169,6 +169,10 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
             displayName(employee, "Employee") + " submitted a " + request.getRequestType() + " request."
         );
         leaveRequest.setManagerNotificationUnread(true);
+        leaveRequest.setEmployeeNotificationMessage(
+            "Your " + request.getRequestType() + " request is waiting for approval from " + displayName(approver, "the approver") + "."
+        );
+        leaveRequest.setEmployeeNotificationUnread(true);
         leaveRequest.setNoDepartmentLeadEscalated(!Boolean.TRUE.equals(approver.getDepartmentLead()));
 
         LeaveRequest saved = leaveRequestRepo.save(leaveRequest);
@@ -180,11 +184,15 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
     @Override
     @Transactional
     public String approveByToken(String token) {
-        LeaveApprovalToken approvalToken = consumeToken(token, LeaveRequestStatus.APPROVED);
+        LeaveApprovalToken approvalToken = resolveActionToken(token, LeaveRequestStatus.APPROVED);
         LeaveRequest request = approvalToken.getLeaveRequest();
-        if (request.getStatus() != LeaveRequestStatus.PENDING) {
-            throw new IllegalArgumentException("This request has already been reviewed.");
+        if (request.getStatus() == LeaveRequestStatus.APPROVED) {
+            return "This Leave/WFH request is already approved.";
         }
+        if (request.getStatus() == LeaveRequestStatus.REJECTED) {
+            return "This Leave/WFH request was already rejected.";
+        }
+        consumeResolvedToken(approvalToken);
 
         request.setStatus(LeaveRequestStatus.APPROVED);
         request.setDecidedAt(LocalDateTime.now());
@@ -202,11 +210,15 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
     @Override
     @Transactional
     public String rejectByToken(String token) {
-        LeaveApprovalToken approvalToken = consumeToken(token, LeaveRequestStatus.REJECTED);
+        LeaveApprovalToken approvalToken = resolveActionToken(token, LeaveRequestStatus.REJECTED);
         LeaveRequest request = approvalToken.getLeaveRequest();
-        if (request.getStatus() != LeaveRequestStatus.PENDING) {
-            throw new IllegalArgumentException("This request has already been reviewed.");
+        if (request.getStatus() == LeaveRequestStatus.REJECTED) {
+            return "This Leave/WFH request is already rejected.";
         }
+        if (request.getStatus() == LeaveRequestStatus.APPROVED) {
+            return "This Leave/WFH request was already approved.";
+        }
+        consumeResolvedToken(approvalToken);
 
         request.setStatus(LeaveRequestStatus.REJECTED);
         request.setDecidedAt(LocalDateTime.now());
@@ -225,7 +237,7 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
     public List<LeaveRequestResponse> markNotificationsRead(String empId) {
         List<LeaveRequest> requests = leaveRequestRepo.findByEmployeeEmpIdAndStatusInOrderByCreatedAtDesc(
             empId,
-            List.of(LeaveRequestStatus.APPROVED, LeaveRequestStatus.REJECTED)
+            List.of(LeaveRequestStatus.PENDING, LeaveRequestStatus.APPROVED, LeaveRequestStatus.REJECTED)
         );
         boolean changed = false;
         for (LeaveRequest request : requests) {
@@ -317,7 +329,7 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
         return token;
     }
 
-    private LeaveApprovalToken consumeToken(String tokenValue, LeaveRequestStatus expectedAction) {
+    private LeaveApprovalToken resolveActionToken(String tokenValue, LeaveRequestStatus expectedAction) {
         if (tokenValue == null || tokenValue.isBlank()) {
             throw new IllegalArgumentException("Approval token is required.");
         }
@@ -326,13 +338,16 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
         if (token.getAction() != expectedAction) {
             throw new IllegalArgumentException("Approval link action is invalid.");
         }
-        if (Boolean.TRUE.equals(token.getUsed())) {
+        return token;
+    }
+
+    private LeaveApprovalToken consumeResolvedToken(LeaveApprovalToken token) {
+        if (Boolean.TRUE.equals(token.getUsed()) && token.getLeaveRequest().getStatus() == LeaveRequestStatus.PENDING) {
             throw new IllegalArgumentException("Approval link was already used.");
         }
-        if (token.getExpiresAt().isBefore(LocalDateTime.now())) {
+        if (token.getExpiresAt().isBefore(LocalDateTime.now()) && token.getLeaveRequest().getStatus() == LeaveRequestStatus.PENDING) {
             throw new IllegalArgumentException("Approval link has expired.");
         }
-
         token.setUsed(true);
         token.setUsedAt(LocalDateTime.now());
         return tokenRepo.save(token);
