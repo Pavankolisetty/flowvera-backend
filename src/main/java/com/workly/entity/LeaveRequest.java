@@ -58,6 +58,12 @@ public class LeaveRequest {
     @Column(name = "manager_emp_id", nullable = false)
     private String managerEmpId;
 
+    @Column(name = "manager_notification_message", length = 1200)
+    private String managerNotificationMessage;
+
+    @Column(name = "manager_notification_unread", nullable = false)
+    private Boolean managerNotificationUnread = false;
+
     @Column(nullable = false)
     private Boolean noDepartmentLeadEscalated = false;
 
@@ -94,6 +100,9 @@ public class LeaveRequest {
         }
         if ((managerEmpId == null || managerEmpId.isBlank()) && approverEmpId != null) {
             managerEmpId = approverEmpId;
+        }
+        if (managerNotificationUnread == null) {
+            managerNotificationUnread = false;
         }
         if (createdAt == null) {
             createdAt = LocalDateTime.now();

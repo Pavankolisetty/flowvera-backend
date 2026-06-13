@@ -162,6 +162,10 @@ public class LeaveRequestServiceImpl implements LeaveRequestService {
         leaveRequest.setApproverEmpId(approver.getEmpId());
         leaveRequest.setManagerEmpId(approver.getEmpId());
         leaveRequest.setApproverName(displayName(approver, approver.getEmpId()));
+        leaveRequest.setManagerNotificationMessage(
+            displayName(employee, "Employee") + " submitted a " + request.getRequestType() + " request."
+        );
+        leaveRequest.setManagerNotificationUnread(true);
         leaveRequest.setNoDepartmentLeadEscalated(!Boolean.TRUE.equals(approver.getDepartmentLead()));
 
         LeaveRequest saved = leaveRequestRepo.save(leaveRequest);
