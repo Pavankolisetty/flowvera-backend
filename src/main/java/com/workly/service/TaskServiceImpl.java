@@ -96,6 +96,13 @@ public class TaskServiceImpl implements TaskService {
         if (assigner.getRole() != Role.ADMIN && !sameDepartment(assigner, emp)) {
             throw new RuntimeException("You can assign tasks only to employees in your department");
         }
+        if (
+            assigner.getRole() != Role.ADMIN
+                && !Boolean.TRUE.equals(assigner.getDepartmentLead())
+                && Boolean.TRUE.equals(emp.getDepartmentLead())
+        ) {
+            throw new RuntimeException("Temporary task assignment authority cannot be used to assign tasks to the Department Lead");
+        }
 
         if (assigner.getRole() != Role.ADMIN && request.getDueDate() == null) {
             throw new RuntimeException("A due date is required when delegating a task");

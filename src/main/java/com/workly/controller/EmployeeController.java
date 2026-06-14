@@ -171,6 +171,9 @@ public class EmployeeController {
             .filter(employee -> !employee.getEmpId().equals(empId))
             .filter(employee -> requester.getRole() == com.workly.entity.Role.ADMIN
                 || sameDepartment(requester.getDepartment(), employee.getDepartment()))
+            .filter(employee -> requester.getRole() == com.workly.entity.Role.ADMIN
+                || Boolean.TRUE.equals(requester.getDepartmentLead())
+                || !Boolean.TRUE.equals(employee.getDepartmentLead()))
             .toList();
         return ResponseEntity.ok(employees);
     }
