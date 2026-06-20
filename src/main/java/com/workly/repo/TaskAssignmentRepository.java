@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TaskAssignmentRepository extends JpaRepository<TaskAssignment, Long> {
     List<TaskAssignment> findByEmployeeEmpId(String empId);
+    List<TaskAssignment> findByEmployeeDepartmentIgnoreCase(String department);
     Optional<TaskAssignment> findByIdAndEmployeeEmpId(Long id, String empId);
     List<TaskAssignment> findByEmployeeEmpIdAndStatusNot(String empId, TaskStatus status);
     List<TaskAssignment> findByAssignedByOrderByAssignedAtDesc(String assignedBy);

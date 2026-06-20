@@ -4,6 +4,7 @@ import com.workly.dto.AssignTaskRequest;
 import com.workly.dto.AttendanceActionRequest;
 import com.workly.dto.CreateTaskRequest;
 import com.workly.dto.CreateTaskWithFileRequest;
+import com.workly.dto.DepartmentPerformanceDto;
 import com.workly.dto.DueDateExtensionRequest;
 import com.workly.dto.EmployeeAttendanceOverviewDto;
 import com.workly.dto.EmployeeProfileResponse;
@@ -27,7 +28,10 @@ import com.workly.service.MailDeliveryService;
 import com.workly.service.TaskService;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.Comparator;
+import java.util.Map;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ByteArrayResource;
@@ -90,6 +94,54 @@ public class EmployeeController {
     @GetMapping("/me")
     public ResponseEntity<EmployeeProfileResponse> getProfile(Authentication auth) {
         return ResponseEntity.ok(employeeService.getProfile(auth.getName()));
+    }
+
+    @GetMapping("/department-performance")
+    public ResponseEntity<List<DepartmentPerformanceDto>> getDepartmentPerformance(Authentication auth) {
+        Employee currentEmployee = employeeRepo.findByEmpId(auth.getName())
+            .orElseThrow(() -> new RuntimeException("Employee not found"));
+
+        String department = currentEmployee.getDepartment();
+        if (department == null || department.isBlank()) {
+            return ResponseEntity.ok(List.of());
+        }
+
+        Map<String, List<TaskAssignment>> assignmentsByEmployee = assignmentRepo
+            .findByEmployeeDepartmentIgnoreCase(department)
+            .stream()
+            .collect(Collectors.groupingBy(assignment -> assignment.getEmployee().getEmpId()));
+
+        List<DepartmentPerformanceDto> performance = employeeRepo
+            .findByDepartmentIgnoreCaseAndRoleAndIsApprovedTrue(department, Role.USER)
+            .stream()
+            .sorted(Comparator
+                .comparing((Employee employee) -> !employee.getEmpId().equals(currentEmployee.getEmpId()))
+                .thenComparing(employee -> !Boolean.TRUE.equals(employee.getDepartmentLead()))
+                .thenComparing(employee -> employee.getName() == null ? "" : employee.getName(), String.CASE_INSENSITIVE_ORDER))
+            .map(employee -> {
+                List<TaskAssignment> employeeAssignments = assignmentsByEmployee.getOrDefault(employee.getEmpId(), List.of());
+                long taskCount = employeeAssignments.size();
+                int averageProgress = taskCount == 0
+                    ? 0
+                    : (int) Math.round(employeeAssignments.stream()
+                        .mapToInt(assignment -> assignment.getProgress() == null ? 0 : assignment.getProgress())
+                        .average()
+                        .orElse(0));
+                String message = taskCount == 0 ? "No tasks assigned yet" : "Overall task progress";
+                return new DepartmentPerformanceDto(
+                    employee.getEmpId(),
+                    employee.getName(),
+                    employee.getDepartment(),
+                    employee.getDesignation(),
+                    employee.getEmpId().equals(currentEmployee.getEmpId()),
+                    Boolean.TRUE.equals(employee.getDepartmentLead()),
+                    taskCount,
+                    averageProgress,
+                    message);
+            })
+            .toList();
+
+        return ResponseEntity.ok(performance);
     }
 
     @GetMapping("/attendance")
