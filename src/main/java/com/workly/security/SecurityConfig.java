@@ -45,6 +45,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/api/auth/**", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
                 .requestMatchers("/api/leave/action/**").permitAll()
+                .requestMatchers("/api/communication/**").hasAnyRole("ADMIN", "USER")
                 .requestMatchers("/api/admin/**").access((authentication, context) ->
                         isDevProfile
                                 ? new org.springframework.security.authorization.AuthorizationDecision(true)
